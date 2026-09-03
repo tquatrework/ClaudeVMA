@@ -1,8 +1,8 @@
-# Architecture — Contenu pédagogique (Quizz, Exercices, Évaluations)
+# Architecture — Contenu pédagogique (Quizz, Exercices, Évaluations, Tutos/Vidéos)
 
 > Fait partie de la scission de `docs/architecture.md` (2026-09-03). Voir [overview.md](overview.md) pour le sommaire complet.
 
-## Arbitrages rendus — Quizz, Exercices, Évaluations et validation du contenu
+## Arbitrages rendus — Quizz, Exercices, Évaluations, Tutos/Vidéos et validation du contenu
 
 - Fonctionnalite Quizz, et repartition generale entre `content-catalog-service` et
   `learning-activity-service` pour tout contenu evalue (quizz, exercices, evaluations). Arbitrage
@@ -696,4 +696,80 @@
   5. **Forums et Parcours suivront le même principe** le jour où leur propre flux de validation sera
      construit (`community-path-service`, pas encore livré) — non traité ici, hors périmètre
      immédiat.
+
+- Refonte des Tutos/Vidéos : deux formats (vidéo embarquée, post), métadonnées alignées sur
+  l'Évaluation, lien optionnel vers un Quizz, droits et validation alignés sur
+  Quizz/Exercice/Évaluation. Arbitrage rendu le 2026-09-03, sur demande explicite de l'utilisateur.
+  Le rôle documenté de `content-catalog-service` ("exercices, evaluations, tutos-videos, validation
+  et moderation pedagogique") et la mention déjà faite le 2026-09-02 ("l'équivalent Tutoriel s'il
+  existe") indiquent qu'un modèle Tutoriel existe déjà, au moins partiellement, depuis le chantier
+  de juin 2026 — probablement à l'état minimal comme l'était l'ancien modèle Exercice avant sa
+  refonte (2026-08-29). `content-catalog-service` doit vérifier l'existant avant d'écrire, sur le
+  même principe que pour la refonte des Exercices : ne pas reconstruire à côté un second mécanisme
+  si l'un existe déjà partiellement.
+  1. **Une seule entité `Tutorial`, deux formats (`format: 'video' | 'post'`)**, pas deux entités
+     séparées : les deux partagent exactement les mêmes métadonnées, le même cycle de validation et
+     les mêmes droits de lecture — dupliquer ces trois mécanismes pour deux entités serait contraire
+     au principe de simplicité déjà appliqué ailleurs dans ce projet (ex. le choix, pour le Quizz,
+     de garder inscription/passage/historique dans un seul service plutôt que de les répartir,
+     2026-08-28).
+  2. **Métadonnées alignées sur l'Évaluation** : titre, thème, tags, niveau, difficulté,
+     compétences, description. `content-catalog-service` réutilise les noms de champs déjà en place
+     sur `Evaluation`/`Exercise` (`theme`, `tags`, `level`/`niveau`, `difficulty`/`difficulte`,
+     `competencies`/`competences`) plutôt que d'en redéfinir de nouveaux — un seul nom par donnée,
+     règle du projet. `description` est un champ nouveau pour ce type de contenu (l'Exercice l'a
+     au contraire retiré de son formulaire le 2026-09-01, mais pour une raison de place à l'écran
+     propre à l'Exercice, pas une règle générale interdisant ce champ — les deux décisions ne se
+     contredisent pas).
+  3. **Format vidéo : un champ `videoUrl`**, l'URL nécessaire à l'embedding. Aucune contrainte de
+     domaine/plateforme n'est posée ici — non demandée, à ne pas inventer.
+  4. **Format post : séquence ordonnée de blocs `titre` / `texte` / `image`**, sur le même schéma
+     que la séquence de blocs déjà construite pour l'Exercice (`statement`/`image`/`question`,
+     2026-08-29 puis 2026-09-01) — réutiliser ce mécanisme plutôt qu'en écrire un second. Un bloc
+     `texte` porte du texte brut avec la syntaxe légère déjà en place ($...$/$$...$$ pour les
+     formules, `[label](url)` pour un lien — 2026-08-26), cohérent avec la façon dont un énoncé de
+     Quizz porte déjà des formules sans passer par une structure d'items imbriqués. Un bloc `image`
+     réutilise le même mécanisme d'image de premier niveau que l'Exercice (upload à la création,
+     type détecté sur les octets réels, re-encodage, SVG refusé — 2026-08-10, 2026-09-01). Aucune
+     contrainte de composition minimale n'est demandée ici (contrairement à l'Exercice qui exige un
+     `statement` et un `question` non vide) — un post peut être structuré librement par son auteur.
+  5. **Lien optionnel vers un Quizz, en fin de tuto (post ou vidéo)** : un champ `linkedQuizId`
+     nullable, référence à un Quizz existant. **Proposition de l'orchestrateur, à confirmer** : le
+     Quizz référencé doit être `validated` au moment où le tuto est lui-même validé/consulté — lier
+     un Quizz encore `pending_validation` ou `rejected` casserait la lecture pour un élève qui n'a
+     pas le droit de le voir. Pas de contrainte d'auteur commun entre le tuto et le Quizz lié, non
+     demandée. Aucune notion de progression ou de score n'est associée à ce lien : c'est une
+     redirection, pas une intégration — passer le Quizz suit le parcours Quizz déjà existant
+     (`learning-activity-service`), sans lien retour vers le tuto à construire ici.
+  6. **Titre obligatoire, unique par auteur, avec disambiguation automatique `"(N)"`** — même
+     mécanique que Quizz/Exercice (2026-09-01, révisée le même jour) : proposition de l'orchestrateur
+     pour rester cohérent avec les trois autres types de contenu, plutôt qu'une exception non
+     justifiée pour le Tutoriel. Valeur par défaut suggérée par le serveur : `"Tutoriel (N)"`, lue
+     par le front avant saisie (`GET /tutorials/default-title`), même convention que Quizz/Exercice.
+  7. **Droits et cycle de validation identiques à Quizz/Exercice/Évaluation**, confirmé explicitement
+     par l'utilisateur :
+     - Créateurs : formateur, AP, RP.
+     - Statut fixé à la création selon le rôle : `pending_validation` pour un formateur,
+       `validated` immédiatement pour AP/RP.
+     - Édition réservée à l'auteur ; un formateur qui édite un Tutoriel déjà `validated` le fait
+       repasser en `pending_validation` ; AP/RP éditant leur propre Tutoriel ne changent pas son
+       statut — même règle que Quizz/Exercice/Évaluation.
+     - Validation réservée au RP (illimité) et à l'AP **scopé par la relation
+       `animator_of_teacher`** — réutiliser exactement le mécanisme déjà construit pour
+       Quizz/Exercice/Évaluation (2026-08-28, étendu à l'Évaluation le 2026-09-01), pas le
+       redévelopper. Route générique `POST /validations/tutorial/:id/decision`, déjà partagée par
+       les 4 types selon la mention du 2026-09-02.
+     - Lecture d'un Tutoriel `validated` ouverte à élève, professeur, AP, RP — mêmes 4 rôles que les
+       trois autres types de contenu, confirmé mot pour mot par l'utilisateur.
+     - Lecture élargie pour le validateur (RP illimité, AP scopé) et pour l'auteur quel que soit le
+       statut : le Tutoriel entre explicitement dans le périmètre de l'arbitrage du 2026-09-02
+       ci-dessus ("Visibilité du contenu en attente de validation"), qui nommait déjà ce cas comme
+       à couvrir "s'il existe".
+  8. **Aucun mécanisme de progression/consultation (lu/pas lu) n'est demandé** — ne pas en
+     construire par anticipation, cohérent avec le principe déjà appliqué ailleurs dans ce projet.
+     Si un suivi de consultation devient nécessaire plus tard, il suivra vraisemblablement le même
+     découpage que Quizz/Exercice/Évaluation (définition dans `content-catalog-service`, suivi dans
+     `learning-activity-service`) — non traité ici.
+  9. **Import tableur non demandé pour ce chantier** — à la différence de Quizz et Exercice, aucune
+     demande d'import CSV/Excel n'a été faite ici ; ne pas le construire par anticipation.
 

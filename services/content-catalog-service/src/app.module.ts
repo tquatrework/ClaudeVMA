@@ -14,6 +14,7 @@ import { ExerciseSolution } from './exercises/entities/exercise-solution.entity'
 import { ExerciseContentItem } from './exercises/entities/exercise-content-item.entity';
 import { Evaluation } from './evaluations/entities/evaluation.entity';
 import { Tutorial } from './tutorials/entities/tutorial.entity';
+import { TutorialBlock } from './tutorials/entities/tutorial-block.entity';
 import { ContentComment } from './contents/entities/content-comment.entity';
 import { ContentRating } from './contents/entities/content-rating.entity';
 import { ContentValidation } from './validations/entities/content-validation.entity';
@@ -35,6 +36,7 @@ import { QuizQuestion } from './quizzes/entities/quiz-question.entity';
           ExerciseContentItem,
           Evaluation,
           Tutorial,
+          TutorialBlock,
           ContentComment,
           ContentRating,
           ContentValidation,

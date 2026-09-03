@@ -5,14 +5,7 @@ export enum ContentType {
   QUIZ = 'quiz',
 }
 
-export enum TutorialType {
-  ACADEMIE = 'academie',
-  ACTIVITE = 'activite',
-  NEWS = 'news',
-}
-
-export enum TutorialFormat {
-  TEXTE = 'texte',
-  MIXTE = 'mixte',
-  VIDEO = 'video',
-}
+// TutorialType / TutorialFormat (académie/activité/news, texte/mixte/vidéo)
+// retirés le 2026-09-03 (docs/architecture.md, "Refonte des Tutos/Vidéos") —
+// remplacés par `TutorialFormat` (video/post), voir
+// `../../tutorials/enums/tutorial-format.enum.ts`.

@@ -70,12 +70,17 @@ export class ValidationsService {
     // 2026-09-01, "Refonte des Evaluations", point 5 : "cette restriction
     // est levée par le présent arbitrage" — une note du 2026-08-28 disait
     // explicitement ce scoping limité au Quizz, cette limitation n'est plus
-    // vraie). Tutorial reste seul inchangé (hors périmètre de cet
-    // arbitrage). RP reste sans restriction pour les 4 types.
+    // vraie), puis Tutoriel (arbitrage du 2026-09-03, "Refonte des
+    // Tutos/Vidéos", point 7 : "réutiliser exactement le mécanisme déjà
+    // construit pour Quizz/Exercice/Évaluation" — une note du 2026-08-29
+    // disait ce scoping "limité au Quizz [...] Tutorial reste seul
+    // inchangé", cette limitation n'est plus vraie non plus). RP reste sans
+    // restriction pour les 4 types.
     if (
       (contentType === ContentType.QUIZ ||
         contentType === ContentType.EXERCISE ||
-        contentType === ContentType.EVALUATION) &&
+        contentType === ContentType.EVALUATION ||
+        contentType === ContentType.TUTORIAL) &&
       validatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE
     ) {
       const authorId = await this.getContentAuthorId(contentId, contentType);

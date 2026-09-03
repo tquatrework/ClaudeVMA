@@ -7,9 +7,11 @@
  * avec suggestion par défaut lue depuis `GET /tutorials/default-title`.
  *
  * Deux formats exclusifs, choisis à la création : `video` (une seule URL) ou `post` (séquence de
- * blocs titre/texte/image, même mécanisme Memo-style que l'Exercice — `TutorialBlockEditor`,
- * réutilise l'encodage image base64 inline de l'Exercice, aucun second mécanisme). Un lien
- * optionnel vers un Quizz existant peut être ajouté en fin de tutoriel (`TutorialQuizLinkPicker`).
+ * blocs texte/image — `TutorialBlockEditor`, réutilise l'encodage image base64 inline de
+ * l'Exercice, aucun second mécanisme). Un bloc texte est édité via un éditeur riche WYSIWYG
+ * (`TutorialRichTextEditor`, arbitrage du 2026-09-03) — c'est là que se compose un titre (grande
+ * taille/gras), la catégorie de bloc `title` ayant été retirée. Un lien optionnel vers un Quizz
+ * existant peut être ajouté en fin de tutoriel (`TutorialQuizLinkPicker`).
  */
 
 import React, { useEffect, useState } from 'react'
@@ -56,7 +58,7 @@ export function TutorialForm({ mode = 'create', tutorialId, initialState, onSave
   const [videoUrl, setVideoUrl] = useState(initialState?.videoUrl ?? '')
   const [linkedQuizId, setLinkedQuizId] = useState<string | null>(initialState?.linkedQuizId ?? null)
   const [blocks, setBlocks] = useState<EditableTutorialBlock[]>(
-    initialState?.blocks ?? [createEditableTutorialBlock('title')],
+    initialState?.blocks ?? [createEditableTutorialBlock('text')],
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)

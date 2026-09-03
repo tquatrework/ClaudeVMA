@@ -23,7 +23,6 @@ export const TUTORIAL_FORMAT_LABELS: Record<TutorialFormat, string> = {
 }
 
 export const TUTORIAL_BLOCK_CATEGORY_LABELS: Record<TutorialBlockCategory, string> = {
-  title: 'Titre',
   text: 'Texte',
   image: 'Image',
 }

@@ -68,7 +68,7 @@ const POST_TUTORIAL: PublicTutorialDetail = {
   createdAt: '2026-09-03T00:00:00Z',
   updatedAt: '2026-09-03T00:00:00Z',
   blocks: [
-    { id: 'b1', blockNumber: 1, category: 'title', content: 'Introduction' },
+    { id: 'b1', blockNumber: 1, category: 'text', content: 'Introduction' },
     { id: 'b2', blockNumber: 2, category: 'text', content: 'Un texte explicatif.' },
   ],
   linkedQuizId: 'quiz-1',

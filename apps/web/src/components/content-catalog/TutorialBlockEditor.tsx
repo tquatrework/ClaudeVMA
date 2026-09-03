@@ -1,16 +1,20 @@
 /**
- * TutorialBlockEditor — édition d'un bloc de Tutoriel au format « post » (titre, texte ou image),
- * au sein de `TutorialForm`. Un bloc EST directement son contenu (pas d'items imbriqués comme
- * l'Exercice) : titre/texte portent un texte brut (syntaxe légère `$...$`/`[label](url)`, même
- * aide de saisie que Quizz/Exercice — `InsertFormulaButton`), un bloc image porte un fichier
- * choisi localement, encodé en base64 et embarqué dans le payload à la soumission du formulaire
- * (voir `TutorialForm`/`utils/tutorialImageResolution.ts`).
+ * TutorialBlockEditor — édition d'un bloc de Tutoriel au format « post » (texte ou image), au sein
+ * de `TutorialForm`. Un bloc EST directement son contenu (pas d'items imbriqués comme l'Exercice) :
+ * un bloc `text` est édité via `TutorialRichTextEditor` (éditeur riche WYSIWYG, arbitrage du
+ * 2026-09-03 — `content` porte un document structuré TipTap sérialisé en JSON, contrairement à la
+ * syntaxe légère texte brut utilisée pour le Mémo/Quizz/cahier de texte) ; un bloc image porte un
+ * fichier choisi localement, encodé en base64 et embarqué dans le payload à la soumission du
+ * formulaire (voir `TutorialForm`/`utils/tutorialImageResolution.ts`).
+ *
+ * La catégorie de bloc `title` a été retirée (fusionnée dans `text`, voir `types/tutorial.ts`) :
+ * un titre se compose désormais dans l'éditeur riche via une taille de texte plus grande et/ou le
+ * gras, pas via une catégorie de bloc distincte.
  */
 
-import React, { useEffect, useRef, useState } from 'react'
-import { InsertFormulaButton } from '../ui/InsertFormulaButton'
-import { LightMarkupText } from '../ui/LightMarkupText'
+import React, { useEffect, useState } from 'react'
 import { TutorialBlockImageView } from './TutorialBlockImageView'
+import { TutorialRichTextEditor } from './TutorialRichTextEditor'
 import {
   getTutorialImageMaxSizeHint,
   getTutorialImageTooLargeMessage,
@@ -22,7 +26,7 @@ import type { PublicTutorialBlock, TutorialBlockCategory } from '../../types/tut
 export interface EditableTutorialBlock {
   localId: string
   category: TutorialBlockCategory
-  /** Utilisé pour `category === 'title'|'text'`. */
+  /** Utilisé pour `category === 'text'` — document structuré TipTap sérialisé en JSON. */
   content: string
   /** Utilisé uniquement si `category === 'image'` — fichier choisi localement, pas encore envoyé. */
   imageFile: File | null
@@ -76,8 +80,6 @@ export function TutorialBlockEditor({
   tutorialId,
   maxImageInputBytes,
 }: TutorialBlockEditorProps) {
-  const fieldRef = useRef<HTMLTextAreaElement>(null)
-
   return (
     <div className="border border-gray-300 rounded-lg p-4 space-y-3 bg-gray-50">
       <div className="flex items-center justify-between gap-3">
@@ -96,7 +98,6 @@ export function TutorialBlockEditor({
             disabled={isSubmitting}
             className="border border-gray-300 rounded-md px-2 py-1 text-xs bg-white"
           >
-            <option value="title">Titre</option>
             <option value="text">Texte</option>
             <option value="image">Image</option>
           </select>
@@ -139,32 +140,12 @@ export function TutorialBlockEditor({
           maxImageInputBytes={maxImageInputBytes}
         />
       ) : (
-        <div className="space-y-2">
-          <textarea
-            ref={fieldRef}
-            value={block.content}
-            onChange={(e) => onChange({ ...block, content: e.target.value })}
-            placeholder={
-              block.category === 'title'
-                ? 'Titre de section'
-                : 'Texte libre — vous pouvez insérer une formule $x^2$ ou un lien [texte](https://…)'
-            }
-            rows={block.category === 'title' ? 1 : 4}
-            disabled={isSubmitting}
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm resize-y"
-          />
-          <InsertFormulaButton
-            fieldLabel={`Bloc ${index + 1}`}
-            fieldRef={fieldRef}
-            value={block.content}
-            onChange={(value) => onChange({ ...block, content: value })}
-          />
-          {block.content.trim() !== '' && (
-            <p className="text-xs text-gray-500 border-t border-gray-200 pt-2">
-              Aperçu : <LightMarkupText text={block.content} />
-            </p>
-          )}
-        </div>
+        <TutorialRichTextEditor
+          value={block.content}
+          onChange={(content) => onChange({ ...block, content })}
+          isSubmitting={isSubmitting}
+          fieldLabel={`Bloc ${index + 1}`}
+        />
       )}
     </div>
   )

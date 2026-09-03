@@ -1,11 +1,13 @@
 /**
- * TutorialBlockView — rendu en lecture seule d'un bloc de tutoriel (titre, texte ou image), selon
- * sa catégorie. Même patron que `ExerciseContentItemView`.
+ * TutorialBlockView — rendu en lecture seule d'un bloc de tutoriel (texte ou image), selon sa
+ * catégorie. Un bloc `text` est rendu par `TutorialRichTextView` (éditeur riche WYSIWYG, arbitrage
+ * du 2026-09-03) — la catégorie `title` a été retirée, fusionnée dans `text` (un titre se compose
+ * désormais par la taille de texte/le gras dans l'éditeur riche).
  */
 
 import React from 'react'
-import { LightMarkupText } from '../ui/LightMarkupText'
 import { TutorialBlockImageView } from './TutorialBlockImageView'
+import { TutorialRichTextView } from './TutorialRichTextView'
 import type { PublicTutorialBlock } from '../../types/tutorial'
 
 interface TutorialBlockViewProps {
@@ -18,17 +20,5 @@ export function TutorialBlockView({ tutorialId, block }: TutorialBlockViewProps)
     return <TutorialBlockImageView tutorialId={tutorialId} block={block} />
   }
 
-  if (block.category === 'title') {
-    return (
-      <h3 className="text-base font-semibold text-gray-900">
-        <LightMarkupText text={block.content ?? ''} />
-      </h3>
-    )
-  }
-
-  return (
-    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-      <LightMarkupText text={block.content ?? ''} />
-    </p>
-  )
+  return <TutorialRichTextView content={block.content} />
 }

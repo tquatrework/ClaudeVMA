@@ -51,6 +51,23 @@ sans toucher au conteneur partagé, si ça se reproduit une troisième fois.
 palette/tailles prédéfinies, nœud formule KaTeX inline hérité de la taille du texte environnant,
 remplacement de l'éditeur texte brut actuel des blocs `text` du Tutoriel post).
 
+**`front-developper` mergé (PR #223), déployé, site vérifié `200` (y compris `/tutorials`).**
+Éditeur TipTap : gras/italique, 3 tailles de texte prédéfinies, palette de 7 couleurs, formule
+KaTeX en nœud inline héritant la taille/couleur du texte environnant à l'insertion, contenu
+stocké en document JSON opaque (jamais de HTML, jamais `dangerouslySetInnerHTML`). Repli
+gracieux prévu pour d'éventuels anciens blocs texte brut (aucun trouvé en pratique, chantier trop
+récent). `tsc`/build propres, suite de tests comparée avant/après par `git stash` : zéro
+régression. Mergé et déployé sur confirmation explicite de l'utilisateur ("Merge et déploie
+maintenant"), sans preuve contre la pile réelle produite par le subagent (pas un blocage —
+l'utilisateur a choisi ce niveau de validation en connaissance de cause).
+
+**Chantier éditeur riche Tutoriel (backend + front) clos.**
+
+Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
+`feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
+inachevé du 2026-08-13 (arbitrage persisté dans `docs/architecture/demande-professeur.md`, jamais
+implémenté).
+
 ---
 
 Refonte des Tutos/Vidéos, demandée le 2026-09-03. Deux formats sur une même entité `Tutorial`

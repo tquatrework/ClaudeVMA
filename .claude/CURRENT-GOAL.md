@@ -7,6 +7,25 @@
 
 ## Besoin courant
 
+Refonte des Tutos/Vidéos, demandée le 2026-09-03. Deux formats sur une même entité `Tutorial`
+(`format: 'video' | 'post'`) : vidéo embarquée (URL) ou post (séquence de blocs titre/texte/image,
+texte mathématique via la syntaxe légère déjà en place). Métadonnées alignées sur l'Évaluation
+(titre, thème, tags, niveau, difficulté, compétences, description). Lien optionnel vers un Quizz en
+fin de tuto. Droits et cycle de validation identiques à Quizz/Exercice/Évaluation (formateur/AP/RP
+créateurs, formateur → `pending_validation`, AP/RP → `validated` immédiat, AP scopé
+`animator_of_teacher`, RP illimité, lecture élève/professeur/AP/RP une fois validé). Arbitrage
+complet persisté dans `docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md`
+("Refonte des Tutos/Vidéos").
+
+Un modèle `Tutorial` existe probablement déjà partiellement depuis le chantier de juin 2026 (la
+route générique de validation le mentionne déjà comme 4e type) — `content-catalog-service` doit
+vérifier l'existant avant d'écrire, même précaution que pour la refonte des Exercices (2026-08-29).
+
+Délégué à `content-catalog-service` le 2026-09-03. `front-developper` à déléguer une fois le
+contrat backend stabilisé (même séquencement que Quizz/Exercice/Évaluation).
+
+---
+
 Trois compléments à Visualisation, demandés le 2026-09-02 après premier test réel : (1) recherche
 (`q` sur prénom/nom, combinée au filtre de rôle) ; (2) actions de tuile différenciées par rôle —
 Élève : Profil/Calendrier/Cahier de texte/Mémos, Professeur/AP : Profil/Calendrier, Parent :

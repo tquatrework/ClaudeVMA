@@ -23,7 +23,7 @@
   pièces jointes du cahier de texte, syntaxe légère pour le texte enrichi, carnet personnel
   (spécification, généralisation aux autres rôles, accès administratif/parental).
 - [docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md](architecture/contenu-pedagogique-quizz-exercices-evaluations.md)
-  — Quizz, Exercices et Évaluations : modèle, droits, validation, import tableur, barème, et
-  visibilité du contenu en attente de validation pour son validateur.
+  — Quizz, Exercices, Évaluations et Tutos/Vidéos : modèle, droits, validation, import tableur,
+  barème, et visibilité du contenu en attente de validation pour son validateur.
 - [docs/architecture/rail-rp-et-points-ouverts.md](architecture/rail-rp-et-points-ouverts.md) —
   Reconstruction du rail gauche du RP (dont l'écran Visualisation) et points ouverts à arbitrer.

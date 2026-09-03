@@ -24,6 +24,36 @@ vérifier l'existant avant d'écrire, même précaution que pour la refonte des 
 Délégué à `content-catalog-service` le 2026-09-03. `front-developper` à déléguer une fois le
 contrat backend stabilisé (même séquencement que Quizz/Exercice/Évaluation).
 
+**`content-catalog-service` mergé (PR #215), déployé proprement, site vérifié `200`.** Modèle
+`Tutorial` existant (chantier de juin 2026, jamais retouché) confirmé différent et vérifié vide
+(0 ligne) — remplacé, pas complété, même précaution que la refonte des Exercices. Deux formats
+(`video`/`post`), blocs `TutorialBlock` (titre/texte/image) réutilisant littéralement le stockage
+d'image de l'Exercice, titre unique par auteur avec disambiguation `"(N)"`, `linkedQuizId` filtré
+par statut du Quizz à chaque lecture, droits/validation alignés Quizz/Exercice/Évaluation (AP
+scopé `animator_of_teacher` — Tutorial était le dernier type resté non scopé). 457/457 tests
+verts, 31/31 assertions HTTP vertes contre la pile réelle (preuve produite par le subagent avant
+merge, via un remplacement manuel temporaire du conteneur partagé — voir incident ci-dessous).
+Docs à jour (`docs/routes.md`, `docs/services/content-catalog-service.md`).
+
+**Incident de déploiement, résolu par l'orchestrateur après merge** : pour produire sa preuve HTTP,
+le subagent avait dû remplacer manuellement le conteneur partagé `visiomath_content_catalog` par
+une image construite depuis sa branche (le worktree isolé ne pouvait pas passer par
+`docker compose build`, qui aurait utilisé le code de `master`) — migration destructive appliquée
+(`DROP TABLE tutorials`, 0 ligne perdue, table vide). Après merge des PR #215 et #214 (docs),
+`docker compose up -d --build content-catalog-service` depuis `master` a d'abord échoué
+(conflit de nom entre le conteneur manuel toujours actif et un conteneur `..._old_master` que
+compose tentait de recréer sous le même nom) — résolu en supprimant les deux conteneurs
+non conformes et en relançant `docker compose up -d`, qui a recréé un conteneur correctement géré.
+Vérifié : conteneur `healthy`, image `claudevma-content-catalog-service` (construite depuis
+`master`), site `200`, route `/tutorials/default-title` répond `401` (existe, protégée, pas de
+`404`). Image de test `visiomath_content_catalog:tutorial-rebuild` supprimée. Worktree de l'agent
+et branche locale `feat/tutorial-rebuild` nettoyés.
+
+**Reste à faire** : déléguer `front-developper` pour les écrans (création vidéo/post, catalogue
+avec recherche par tag, formulaire de blocs titre/texte/image façon Memo/Exercice, lien optionnel
+vers un Quizz, onglet Validation intégré directement dans la page comme pour Quizz/Exercice —
+pas un écran séparé peu découvrable, leçon retenue du 2026-08-29).
+
 ---
 
 Trois compléments à Visualisation, demandés le 2026-09-02 après premier test réel : (1) recherche

@@ -4,17 +4,17 @@
  * Page de validation du catalogue pédagogique pour les rôles RP et AP.
  * Charge les contenus en statut `pending_validation` et permet de les valider ou rejeter.
  *
- * Les Exercices, Quizz et Évaluations utilisent une vraie route de décision (même mécanisme
- * générique — `docs/architecture.md` > « Refonte des Exercices »/« Refonte des Evaluations ») :
- * ce composant les appelle réellement. Seul le tutoriel se contente encore d'un retrait
- * optimiste local, faute de route de décision documentée pour ce type.
+ * Exercices, Quizz, Évaluations et — depuis la refonte du 2026-09-03 — Tutoriels utilisent tous
+ * une vraie route de décision (même mécanisme générique — `docs/architecture.md` > « Refonte des
+ * Exercices »/« Refonte des Evaluations »/« Refonte des Tutos/Vidéos ») : ce composant les appelle
+ * réellement.
  *
  * Routes API consommées :
  *   GET  /exercises/pending-validation        (content-catalog-service)
  *   POST /validations/exercise/:id/decision   (content-catalog-service)
  *   GET  /evaluations (large, filtré côté client — voir `api/evaluations.ts`)
  *   POST /validations/evaluation/:id/decision (content-catalog-service)
- *   GET  /tutorials   (filtrés par status=pending_validation)
+ *   GET  /tutorials/pending-validation, POST /validations/tutorial/:id/decision
  *   GET  /quizzes/pending-validation, POST /validations/quiz/:id/decision
  */
 
@@ -22,26 +22,28 @@ import React, { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import ContentValidationQueue from '../components/content-catalog/ContentValidationQueue'
-import { fetchTutorials, type Tutorial } from '../api/contentCatalog'
+import { decideTutorialValidation, fetchPendingTutorials } from '../api/tutorials'
 import { decideQuizValidation, fetchPendingQuizzes } from '../api/quizzes'
 import { decideExerciseValidation, fetchPendingExercises } from '../api/exercises'
 import { decideEvaluationValidation, fetchPendingEvaluations } from '../api/evaluations'
 import type { QuizSummary, QuizValidationDecision } from '../types/quiz'
 import type { ExerciseSummary, ExerciseValidationDecision } from '../types/exercise'
 import type { Evaluation, EvaluationValidationDecision } from '../types/evaluation'
+import type { TutorialSummary, TutorialValidationDecision } from '../types/tutorial'
 
 export default function ContentValidationQueuePage() {
   const { hasRole } = useAuth()
 
   const [pendingExercises, setPendingExercises] = useState<ExerciseSummary[]>([])
   const [pendingEvaluations, setPendingEvaluations] = useState<Evaluation[]>([])
-  const [pendingTutorials, setPendingTutorials] = useState<Tutorial[]>([])
+  const [pendingTutorials, setPendingTutorials] = useState<TutorialSummary[]>([])
   const [pendingQuizzes, setPendingQuizzes] = useState<QuizSummary[]>([])
   const [isLoadingContent, setIsLoadingContent] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [exerciseLoadError, setExerciseLoadError] = useState<string | null>(null)
   const [quizLoadError, setQuizLoadError] = useState<string | null>(null)
   const [evaluationLoadError, setEvaluationLoadError] = useState<string | null>(null)
+  const [tutorialLoadError, setTutorialLoadError] = useState<string | null>(null)
   const [validationFeedback, setValidationFeedback] = useState<string | null>(null)
 
   const canValidateContent = hasRole('responsable_pedagogique', 'animateur_pedagogique')
@@ -57,17 +59,14 @@ export default function ContentValidationQueuePage() {
     setExerciseLoadError(null)
     setQuizLoadError(null)
     setEvaluationLoadError(null)
+    setTutorialLoadError(null)
 
     // Chaque type de contenu est chargé séparément : leurs routes ont des historiques différents
     // et peuvent échouer indépendamment sans priver le RP/AP des files qui, elles, fonctionnent.
-    fetchTutorials({ status: 'pending_validation' })
-      .then((tutorials) => setPendingTutorials(tutorials))
-      .catch(() => setLoadError('Impossible de charger les tutoriels en attente.'))
-      .finally(() => setIsLoadingContent(false))
-
     fetchPendingExercises()
       .then((exerciseResult) => setPendingExercises(exerciseResult.items))
       .catch(() => setExerciseLoadError('Impossible de charger les exercices en attente.'))
+      .finally(() => setIsLoadingContent(false))
 
     fetchPendingQuizzes()
       .then((quizResult) => setPendingQuizzes(quizResult.items))
@@ -76,6 +75,10 @@ export default function ContentValidationQueuePage() {
     fetchPendingEvaluations()
       .then((evaluations) => setPendingEvaluations(evaluations))
       .catch(() => setEvaluationLoadError('Impossible de charger les évaluations en attente.'))
+
+    fetchPendingTutorials()
+      .then((tutorialResult) => setPendingTutorials(tutorialResult.items))
+      .catch(() => setTutorialLoadError('Impossible de charger les tutoriels en attente.'))
   }, [canValidateContent])
 
   const handleDecideExercise = async (
@@ -113,17 +116,14 @@ export default function ContentValidationQueuePage() {
     setTimeout(() => setValidationFeedback(null), 3000)
   }
 
-  const handleValidateContent = (
-    contentType: 'tutorial',
-    contentId: string,
-    decision: 'approve' | 'reject',
+  const handleDecideTutorial = async (
+    tutorialId: string,
+    decision: TutorialValidationDecision,
+    comment?: string,
   ) => {
-    // Mise à jour optimiste locale — la route de validation n'est pas encore spécifiée pour ce
-    // type de contenu. Le feedback est affiché et l'item retiré de la liste.
-    setPendingTutorials((previous) => previous.filter((item) => item.id !== contentId))
-
-    const decisionLabel = decision === 'approve' ? 'validé' : 'rejeté'
-    setValidationFeedback(`Contenu ${decisionLabel} avec succès.`)
+    await decideTutorialValidation(tutorialId, decision, comment)
+    setPendingTutorials((previous) => previous.filter((tutorial) => tutorial.id !== tutorialId))
+    setValidationFeedback(decision === 'validated' ? 'Tutoriel validé avec succès.' : 'Tutoriel rejeté.')
     setTimeout(() => setValidationFeedback(null), 3000)
   }
 
@@ -187,6 +187,12 @@ export default function ContentValidationQueuePage() {
           </div>
         )}
 
+        {tutorialLoadError && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+            <p className="text-yellow-700 text-sm">{tutorialLoadError}</p>
+          </div>
+        )}
+
         {/* Feedback de validation */}
         {validationFeedback && (
           <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
@@ -199,10 +205,10 @@ export default function ContentValidationQueuePage() {
           pendingEvaluations={pendingEvaluations}
           pendingTutorials={pendingTutorials}
           pendingQuizzes={pendingQuizzes}
-          onValidateContent={handleValidateContent}
           onDecideExercise={handleDecideExercise}
           onDecideQuiz={handleDecideQuiz}
           onDecideEvaluation={handleDecideEvaluation}
+          onDecideTutorial={handleDecideTutorial}
         />
       </div>
     </Layout>

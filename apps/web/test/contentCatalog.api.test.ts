@@ -12,8 +12,6 @@
  * - fetchEvaluations()            → GET /evaluations
  * - createEvaluation()            → POST /evaluations
  * - startEvaluationAttempt()      → POST /evaluations/:id/attempts
- * - fetchTutorials()              → GET /tutorials
- * - createTutorial()              → POST /tutorials
  * - createContentComment()        → POST /contents/:id/comments
  * - createContentRating()         → POST /contents/:id/ratings
  */
@@ -33,13 +31,10 @@ import {
   fetchEvaluations,
   createEvaluation,
   startEvaluationAttempt,
-  fetchTutorials,
-  createTutorial,
   createContentComment,
   createContentRating,
   type Exercise,
   type Evaluation,
-  type Tutorial,
   type ExerciseAnswer,
   type CorrectionRequest,
   type ExerciseSolution,
@@ -77,18 +72,6 @@ const EVALUATION: Evaluation = {
   hasSolution: true,
   durationMinutes: 60,
   createdAt: '2026-06-15T09:00:00Z',
-}
-
-const TUTORIAL: Tutorial = {
-  id: 'tuto-1',
-  title: 'Introduction aux intégrales',
-  description: 'Les bases',
-  subject: 'Mathématiques',
-  level: 'Terminale',
-  videoUrl: 'https://video.example.com/integrales',
-  status: 'published',
-  authorId: 'teacher-1',
-  createdAt: '2026-06-15T10:00:00Z',
 }
 
 const EXERCISE_ANSWER: ExerciseAnswer = {
@@ -349,53 +332,11 @@ describe('contentCatalog API — Évaluations', () => {
 })
 
 // ─── Tests Tutoriels ──────────────────────────────────────────────────────────
-
-describe('contentCatalog API — Tutoriels', () => {
-  describe('fetchTutorials', () => {
-    it('GET /tutorials sans paramètres', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [TUTORIAL] })
-
-      const result = await fetchTutorials()
-
-      expect(mockApiClient.get).toHaveBeenCalledWith('/tutorials', { params: undefined })
-      expect(result).toEqual([TUTORIAL])
-    })
-  })
-
-  describe('createTutorial', () => {
-    it('POST /tutorials avec URL vidéo', async () => {
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: TUTORIAL })
-
-      const payload = {
-        title: 'Introduction aux intégrales',
-        description: 'Les bases',
-        subject: 'Mathématiques',
-        level: 'Terminale',
-        videoUrl: 'https://video.example.com/integrales',
-      }
-
-      const result = await createTutorial(payload)
-
-      expect(mockApiClient.post).toHaveBeenCalledWith('/tutorials', payload)
-      expect(result).toEqual(TUTORIAL)
-    })
-
-    it('POST /tutorials sans URL vidéo (optionnel)', async () => {
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: { ...TUTORIAL, videoUrl: undefined } })
-
-      const payload = {
-        title: 'Tutoriel texte',
-        description: 'Description',
-        subject: 'Mathématiques',
-        level: 'Terminale',
-      }
-
-      await createTutorial(payload)
-
-      expect(mockApiClient.post).toHaveBeenCalledWith('/tutorials', payload)
-    })
-  })
-})
+//
+// Retirés le 2026-09-03 (refonte vidéo/post, `docs/architecture.md` > « Refonte des
+// Tutos/Vidéos ») : `fetchTutorials`/`createTutorial`/`Tutorial` ne sont plus exportés par ce
+// module — voir `src/api/tutorials.ts` et `test/pages/content-catalog/TutorialCatalogPage.test.tsx`
+// pour la couverture sur le nouveau contrat.
 
 // ─── Tests Commentaires et Notations ─────────────────────────────────────────
 

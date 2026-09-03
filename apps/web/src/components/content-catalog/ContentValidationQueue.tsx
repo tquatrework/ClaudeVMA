@@ -6,38 +6,32 @@
  * Les listes de contenus (exercices, évaluations, tutoriels, quizz) en attente sont reçues en
  * props.
  *
- * Exercices, Quizz et Évaluations disposent d'une vraie route de décision (même mécanisme de
- * validation générique, `docs/architecture.md` > « Refonte des Exercices »/« Refonte des
- * Evaluations ») — ce composant l'appelle réellement via
- * `ExerciseValidationList`/`QuizValidationList`/`EvaluationValidationList`. Seuls les tutoriels
- * restent en attente d'une route dédiée (validation encore optimiste côté client).
+ * Exercices, Quizz, Évaluations et — depuis la refonte du 2026-09-03 — Tutoriels disposent tous
+ * d'une vraie route de décision (même mécanisme de validation générique,
+ * `docs/architecture.md` > « Refonte des Exercices »/« Refonte des Evaluations »/« Refonte des
+ * Tutos/Vidéos ») : ce composant les appelle réellement via
+ * `ExerciseValidationList`/`QuizValidationList`/`EvaluationValidationList`/`TutorialValidationList`.
  *
- * Note : la validation des Évaluations est aussi accessible depuis l'onglet « Validation » de
- * `EvaluationCatalogPage` (leçon du chantier Quizz sur la découvrabilité) — les deux écrans
- * appellent la même route serveur, sans état partagé entre eux.
+ * Note : la validation de chaque type de contenu est aussi accessible depuis l'onglet
+ * « Validation » de sa propre page catalogue (leçon du chantier Quizz sur la découvrabilité) — les
+ * deux écrans appellent la même route serveur, sans état partagé entre eux.
  */
 
 import React, { useState } from 'react'
-import type { Tutorial } from '../../api/contentCatalog'
 import type { Evaluation, EvaluationValidationDecision } from '../../types/evaluation'
 import type { ExerciseSummary, ExerciseValidationDecision } from '../../types/exercise'
 import type { QuizSummary, QuizValidationDecision } from '../../types/quiz'
+import type { TutorialSummary, TutorialValidationDecision } from '../../types/tutorial'
 import { ExerciseValidationList } from './ExerciseValidationList'
 import { QuizValidationList } from './QuizValidationList'
 import { EvaluationValidationList } from './EvaluationValidationList'
-
-// Vocabulaire local, propre aux tutoriels (validation encore optimiste côté client, aucune route
-// de décision documentée pour ce type). Distinct de `ExerciseValidationDecision`/
-// `QuizValidationDecision`/`EvaluationValidationDecision`, qui portent le vocabulaire réel attendu
-// par le serveur.
-type ContentDecision = 'approve' | 'reject'
+import { TutorialValidationList } from './TutorialValidationList'
 
 interface ContentValidationQueueProps {
   pendingExercises: ExerciseSummary[]
   pendingEvaluations: Evaluation[]
-  pendingTutorials: Tutorial[]
+  pendingTutorials: TutorialSummary[]
   pendingQuizzes: QuizSummary[]
-  onValidateContent: (contentType: 'tutorial', contentId: string, decision: ContentDecision) => void
   onDecideExercise: (
     exerciseId: string,
     decision: ExerciseValidationDecision,
@@ -49,6 +43,11 @@ interface ContentValidationQueueProps {
     decision: EvaluationValidationDecision,
     comment?: string,
   ) => Promise<void>
+  onDecideTutorial: (
+    tutorialId: string,
+    decision: TutorialValidationDecision,
+    comment?: string,
+  ) => Promise<void>
 }
 
 type ActiveValidationTab = 'exercises' | 'evaluations' | 'tutorials' | 'quizzes'
@@ -58,10 +57,10 @@ export default function ContentValidationQueue({
   pendingEvaluations,
   pendingTutorials,
   pendingQuizzes,
-  onValidateContent,
   onDecideExercise,
   onDecideQuiz,
   onDecideEvaluation,
+  onDecideTutorial,
 }: ContentValidationQueueProps) {
   const [activeTab, setActiveTab] = useState<ActiveValidationTab>('exercises')
 
@@ -117,79 +116,12 @@ export default function ContentValidationQueue({
       )}
 
       {activeTab === 'tutorials' && (
-        <ValidationItemList
-          items={pendingTutorials}
-          onValidate={onValidateContent}
-          emptyLabel="Aucun tutoriel en attente."
-        />
+        <TutorialValidationList tutorials={pendingTutorials} onDecide={onDecideTutorial} />
       )}
 
       {activeTab === 'quizzes' && (
         <QuizValidationList quizzes={pendingQuizzes} onDecide={onDecideQuiz} />
       )}
     </div>
-  )
-}
-
-// ─── Sous-composant liste de validation (tutoriels) ────────────────────────────
-
-interface ValidationItem {
-  id: string
-  title: string
-  description: string
-  subject: string
-  level: string
-}
-
-interface ValidationItemListProps {
-  items: ValidationItem[]
-  onValidate: (contentType: 'tutorial', contentId: string, decision: ContentDecision) => void
-  emptyLabel: string
-}
-
-function ValidationItemList({ items, onValidate, emptyLabel }: ValidationItemListProps) {
-  if (items.length === 0) {
-    return <p className="text-gray-400 text-sm italic py-4">{emptyLabel}</p>
-  }
-
-  return (
-    <ul className="space-y-3">
-      {items.map((item) => (
-        <li
-          key={item.id}
-          className="bg-white border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-4"
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900 truncate">{item.title}</p>
-            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</p>
-            <div className="flex gap-2 mt-1">
-              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                {item.subject}
-              </span>
-              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                {item.level}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => onValidate('tutorial', item.id, 'approve')}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700 transition-colors"
-            >
-              Valider
-            </button>
-            <button
-              type="button"
-              onClick={() => onValidate('tutorial', item.id, 'reject')}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
-            >
-              Rejeter
-            </button>
-          </div>
-        </li>
-      ))}
-    </ul>
   )
 }

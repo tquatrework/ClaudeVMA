@@ -60,6 +60,8 @@ import EvaluationEditPage from './pages/EvaluationEditPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import EvaluationAttemptResumePage from './pages/EvaluationAttemptResumePage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
+import TutorialDetailPage from './pages/TutorialDetailPage'
+import TutorialEditPage from './pages/TutorialEditPage'
 import QuizzPage from './pages/QuizzPage'
 import QuizDetailPage from './pages/QuizDetailPage'
 import QuizEditPage from './pages/QuizEditPage'
@@ -779,6 +781,28 @@ export default function App() {
                 allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
               >
                 <TutorialCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/tutorials/:tutorialId"
+            element={
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
+                <TutorialDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Édition réservée à l'auteur — mêmes rôles créateurs, le contrôle réel (auteur ou
+              non) restant du côté serveur, même patron que `/content/exercises/:exerciseId/edit`. */}
+          <Route
+            path="/content/tutorials/:tutorialId/edit"
+            element={
+              <ProtectedRoute
+                allowedRoles={['formateur', 'animateur_pedagogique', 'responsable_pedagogique']}
+              >
+                <TutorialEditPage />
               </ProtectedRoute>
             }
           />

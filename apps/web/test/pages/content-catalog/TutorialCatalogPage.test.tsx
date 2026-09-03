@@ -1,36 +1,44 @@
 /**
- * Tests pour TutorialCatalogPage (Phase 12)
+ * Tests pour TutorialCatalogPage — refonte du 2026-09-03 (`docs/architecture.md` > « Refonte des
+ * Tutos/Vidéos »).
  *
  * Couvre :
- * - L'élève voit les tutoriels publiés
- * - L'élève ne voit pas le bouton "Nouveau tutoriel"
- * - Le formateur voit le bouton "Nouveau tutoriel"
- * - Le formateur peut créer un tutoriel (sans solution — tutoriels n'en nécessitent pas)
- * - Le formateur peut créer un tutoriel sans URL vidéo
- * - Sélectionner un tutoriel affiche son détail et ses commentaires
- * - Le lien vidéo s'affiche si une URL est fournie
- * - Le commentaire inline fonctionne sur le tutoriel sélectionné
- * - État vide et état d'erreur de chargement
- * - Badge "En attente" pour les tutoriels pending_validation
+ * - États chargement / vide / erreur du catalogue
+ * - Visibilité du bouton de création selon le rôle (élève vs formateur/RP)
+ * - Affichage d'un tutoriel dans le catalogue, avec badge de statut si non validé
+ * - Création d'un tutoriel au format « post » (bloc texte) avec succès
+ * - Le format « vidéo » exige une URL
+ * - Visibilité et usage de l'onglet « Validation » (RP)
+ * - Visibilité de l'onglet « Mes Tutoriels » (formateur)
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/contentCatalog')
+vi.mock('../../../src/api/tutorials')
 
 import { useAuth } from '../../../src/hooks/useAuth'
-import { fetchTutorials, createTutorial, createContentComment } from '../../../src/api/contentCatalog'
+import {
+  searchTutorials,
+  fetchPendingTutorials,
+  createTutorial,
+  fetchTutorialDefaultTitle,
+  fetchTutorialImageConstraints,
+  decideTutorialValidation,
+} from '../../../src/api/tutorials'
 import TutorialCatalogPage from '../../../src/pages/TutorialCatalogPage'
-import type { Tutorial, ContentComment } from '../../../src/api/contentCatalog'
+import type { PublicTutorialDetail, TutorialSummary } from '../../../src/types/tutorial'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockFetchTutorials = vi.mocked(fetchTutorials)
+const mockSearchTutorials = vi.mocked(searchTutorials)
+const mockFetchPendingTutorials = vi.mocked(fetchPendingTutorials)
 const mockCreateTutorial = vi.mocked(createTutorial)
-const mockCreateContentComment = vi.mocked(createContentComment)
+const mockFetchTutorialDefaultTitle = vi.mocked(fetchTutorialDefaultTitle)
+const mockFetchTutorialImageConstraints = vi.mocked(fetchTutorialImageConstraints)
+const mockDecideTutorialValidation = vi.mocked(decideTutorialValidation)
 
 // ─── Fixtures utilisateurs ────────────────────────────────────────────────────
 
@@ -55,7 +63,7 @@ const RP_USER = {
   validationStatus: 'active' as const,
 }
 
-function buildAuthMock(userObj = STUDENT_USER) {
+function buildAuthMock(userObj: typeof STUDENT_USER | typeof TEACHER_USER | typeof RP_USER = STUDENT_USER) {
   return {
     user: userObj,
     isAuthenticated: true,
@@ -64,57 +72,49 @@ function buildAuthMock(userObj = STUDENT_USER) {
     logout: vi.fn(),
     hasRole: vi.fn((...roles: string[]) => roles.includes(userObj.role)),
     isInternalRole: vi.fn(() =>
-      (['responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique', 'administrateur_financier'] as string[]).includes(userObj.role),
+      (
+        [
+          'responsable_pedagogique',
+          'animateur_pedagogique',
+          'technicien_informatique',
+          'administrateur_financier',
+        ] as string[]
+      ).includes(userObj.role),
     ),
   }
 }
 
 // ─── Fixtures tutoriels ───────────────────────────────────────────────────────
 
-const PUBLISHED_TUTORIAL: Tutorial = {
+const PUBLISHED_TUTORIAL: TutorialSummary = {
   id: 'tuto-1',
   title: 'Introduction aux intégrales',
-  description: 'Comprendre les bases des intégrales définies',
-  subject: 'Mathématiques',
-  level: 'Terminale',
-  videoUrl: 'https://video.example.com/integrales',
-  status: 'published',
+  description: 'Comprendre les bases',
+  tags: ['analyse'],
+  format: 'video',
+  status: 'validated',
   authorId: 'teacher-1',
   createdAt: '2026-06-15T08:00:00Z',
+  updatedAt: '2026-06-15T08:00:00Z',
 }
 
-const TUTORIAL_NO_VIDEO: Tutorial = {
-  id: 'tuto-2',
-  title: 'Calcul littéral avancé',
-  description: 'Techniques de calcul littéral',
-  subject: 'Mathématiques',
-  level: 'Première',
-  status: 'published',
-  authorId: 'teacher-1',
-  createdAt: '2026-06-15T09:00:00Z',
+const PENDING_TUTORIAL: TutorialSummary = {
+  ...PUBLISHED_TUTORIAL,
+  id: 'tuto-pending',
+  status: 'pending_validation',
 }
 
-const CREATED_TUTORIAL: Tutorial = {
+const CREATED_TUTORIAL: PublicTutorialDetail = {
   id: 'tuto-new',
   title: 'Nouveau tutoriel',
-  description: 'Description du nouveau tutoriel',
-  subject: 'Mathématiques',
-  level: 'Terminale',
-  videoUrl: 'https://video.example.com/nouveau',
+  tags: [],
+  format: 'post',
   status: 'pending_validation',
   authorId: 'teacher-1',
   createdAt: '2026-06-17T10:00:00Z',
+  updatedAt: '2026-06-17T10:00:00Z',
+  blocks: [{ id: 'b1', blockNumber: 1, category: 'text', content: 'Un contenu de tutoriel.' }],
 }
-
-const MOCK_COMMENT: ContentComment = {
-  id: 'comment-1',
-  contentId: 'tuto-1',
-  authorId: 'student-1',
-  content: 'Très clair, merci !',
-  createdAt: '2026-06-17T11:00:00Z',
-}
-
-// ─── Helper de rendu ──────────────────────────────────────────────────────────
 
 function renderPage() {
   return render(
@@ -124,343 +124,168 @@ function renderPage() {
   )
 }
 
-// ─── Setup ────────────────────────────────────────────────────────────────────
-
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
-  mockFetchTutorials.mockResolvedValue([])
-  mockCreateContentComment.mockResolvedValue(MOCK_COMMENT)
+  mockSearchTutorials.mockResolvedValue({ items: [], total: 0 })
+  mockFetchPendingTutorials.mockResolvedValue({ items: [], total: 0 })
+  mockFetchTutorialDefaultTitle.mockResolvedValue({ title: 'Tutoriel (1)' })
+  mockFetchTutorialImageConstraints.mockResolvedValue({
+    maxImageInputBytes: 600_000,
+    maxImageOutputBytes: 500_000,
+    maxRequestBodyBytes: 900_000,
+  })
 })
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+describe('TutorialCatalogPage — chargement et états', () => {
+  it('affiche l’état de chargement initialement', () => {
+    mockSearchTutorials.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    expect(screen.getByText(/Chargement des tutoriels/)).toBeDefined()
+  })
 
-describe('TutorialCatalogPage', () => {
-  describe('Chargement et états', () => {
-    it('affiche l\'état de chargement initialement', () => {
-      mockFetchTutorials.mockReturnValue(new Promise(() => {}))
-      renderPage()
-      expect(screen.getByText(/Chargement des tutoriels/)).toBeDefined()
-    })
-
-    it('affiche "Aucun tutoriel disponible" quand la liste est vide', async () => {
-      renderPage()
-      await waitFor(() => {
-        expect(screen.getByText(/Aucun tutoriel disponible/)).toBeDefined()
-      })
-    })
-
-    it('affiche une erreur si le chargement échoue', async () => {
-      mockFetchTutorials.mockRejectedValue(new Error('Server error'))
-      renderPage()
-      await waitFor(() => {
-        expect(screen.getByText(/Impossible de charger les tutoriels/)).toBeDefined()
-      })
+  it('affiche "Aucun tutoriel" quand la liste est vide', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText(/Aucun tutoriel ne correspond à cette recherche/)).toBeDefined()
     })
   })
 
-  describe('Affichage liste', () => {
-    it('l\'élève voit les tutoriels publiés', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText('Introduction aux intégrales')).toBeDefined()
-      })
+  it('affiche une erreur si le chargement échoue', async () => {
+    mockSearchTutorials.mockRejectedValue(new Error('Server error'))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText(/Impossible de charger les tutoriels/)).toBeDefined()
     })
+  })
+})
 
-    it('affiche le sujet et le niveau du tutoriel', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
+describe('TutorialCatalogPage — catalogue', () => {
+  it('affiche un tutoriel du catalogue', async () => {
+    mockSearchTutorials.mockResolvedValue({ items: [PUBLISHED_TUTORIAL], total: 1 })
+    renderPage()
 
-      await waitFor(() => {
-        expect(screen.getByText('Mathématiques')).toBeDefined()
-        expect(screen.getByText('Terminale')).toBeDefined()
-      })
-    })
-
-    it('affiche le badge "En attente" pour un tutoriel pending_validation', async () => {
-      const pendingTutorial: Tutorial = {
-        ...PUBLISHED_TUTORIAL,
-        id: 'tuto-pending',
-        status: 'pending_validation',
-      }
-      mockFetchTutorials.mockResolvedValue([pendingTutorial])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText('En attente')).toBeDefined()
-      })
-    })
-
-    it('affiche plusieurs tutoriels', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL, TUTORIAL_NO_VIDEO])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText('Introduction aux intégrales')).toBeDefined()
-        expect(screen.getByText('Calcul littéral avancé')).toBeDefined()
-      })
+    await waitFor(() => {
+      expect(screen.getByText('Introduction aux intégrales')).toBeDefined()
     })
   })
 
-  describe('Sélection d\'un tutoriel', () => {
-    it('affiche l\'invite de sélection quand aucun tutoriel n\'est sélectionné', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
+  it('affiche un badge de statut pour un tutoriel non validé', async () => {
+    mockSearchTutorials.mockResolvedValue({ items: [PENDING_TUTORIAL], total: 1 })
+    renderPage()
 
-      await waitFor(() => {
-        expect(screen.getByText(/Sélectionnez un tutoriel pour afficher son contenu/)).toBeDefined()
-      })
+    await waitFor(() => {
+      expect(screen.getByText('En attente de validation')).toBeDefined()
     })
+  })
+})
 
-    it('affiche le détail d\'un tutoriel après sélection', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByText('Introduction aux intégrales')
-      })
-
-      // Cliquer sur le tutoriel dans la liste
-      await userEvent.click(screen.getAllByText('Introduction aux intégrales')[0])
-
-      await waitFor(() => {
-        // La description apparaît à la fois dans la liste (truncated) et dans le détail
-        // On vérifie qu'au moins un élément avec ce texte est présent
-        const descriptionElements = screen.getAllByText('Comprendre les bases des intégrales définies')
-        expect(descriptionElements.length).toBeGreaterThanOrEqual(1)
-      })
+describe('TutorialCatalogPage — droits de création par rôle', () => {
+  it('un élève ne voit pas le bouton de création', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText(/Aucun tutoriel/)).toBeDefined()
     })
+    expect(screen.queryByRole('button', { name: /créer un nouveau tutoriel/i })).toBeNull()
+  })
 
-    it('affiche le lien vidéo si une URL est fournie', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByText('Introduction aux intégrales')
-      })
-
-      await userEvent.click(screen.getAllByText('Introduction aux intégrales')[0])
-
-      await waitFor(() => {
-        const link = screen.getByRole('link', { name: /regarder le tutoriel/i })
-        expect(link).toBeDefined()
-        expect((link as HTMLAnchorElement).href).toContain('https://video.example.com/integrales')
-      })
-    })
-
-    it('n\'affiche pas de lien vidéo si l\'URL est absente', async () => {
-      mockFetchTutorials.mockResolvedValue([TUTORIAL_NO_VIDEO])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByText('Calcul littéral avancé')
-      })
-
-      await userEvent.click(screen.getAllByText('Calcul littéral avancé')[0])
-
-      await waitFor(() => {
-        expect(screen.queryByRole('link', { name: /regarder le tutoriel/i })).toBeNull()
-      })
-    })
-
-    it('affiche la section commentaires après sélection', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByText('Introduction aux intégrales')
-      })
-
-      await userEvent.click(screen.getAllByText('Introduction aux intégrales')[0])
-
-      await waitFor(() => {
-        expect(screen.getByText(/Commentaires/)).toBeDefined()
-      })
-    })
-
-    it('l\'élève peut commenter un tutoriel sélectionné', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByText('Introduction aux intégrales')
-      })
-
-      await userEvent.click(screen.getAllByText('Introduction aux intégrales')[0])
-
-      await waitFor(() => {
-        screen.getByLabelText(/Ajouter un commentaire/)
-      })
-
-      await userEvent.type(screen.getByLabelText(/Ajouter un commentaire/), 'Très clair, merci !')
-      await userEvent.click(screen.getByRole('button', { name: /publier/i }))
-
-      await waitFor(() => {
-        expect(screen.getByText('Très clair, merci !')).toBeDefined()
-      })
-
-      expect(mockCreateContentComment).toHaveBeenCalledWith('tuto-1', {
-        content: 'Très clair, merci !',
-      })
+  it('un formateur voit le bouton de création', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /créer un nouveau tutoriel/i })).toBeDefined()
     })
   })
 
-  describe('Contrôle d\'accès à la création', () => {
-    it('l\'élève ne voit pas le bouton "Nouveau tutoriel"', async () => {
-      mockFetchTutorials.mockResolvedValue([PUBLISHED_TUTORIAL])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText('Introduction aux intégrales')).toBeDefined()
-      })
-
-      expect(screen.queryByRole('button', { name: /nouveau tutoriel/i })).toBeNull()
+  it('un RP voit le bouton de création et l’onglet Validation', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /créer un nouveau tutoriel/i })).toBeDefined()
     })
-
-    it('le formateur voit le bouton "Nouveau tutoriel"', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /nouveau tutoriel/i })).toBeDefined()
-      })
-    })
-
-    it('le RP voit le bouton "Nouveau tutoriel"', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /nouveau tutoriel/i })).toBeDefined()
-      })
-    })
+    expect(screen.getByRole('tab', { name: /validation/i })).toBeDefined()
   })
 
-  describe('Formulaire de création', () => {
-    it('le formateur peut ouvrir le formulaire de création', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByRole('button', { name: /nouveau tutoriel/i })
-      })
-
-      await userEvent.click(screen.getByRole('button', { name: /nouveau tutoriel/i }))
-
-      expect(screen.getByText('Créer un tutoriel')).toBeDefined()
+  it('un élève ne voit ni l’onglet Mes Tutoriels ni l’onglet Validation', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText(/Aucun tutoriel/)).toBeDefined()
     })
+    expect(screen.queryByRole('tab', { name: /mes tutoriels/i })).toBeNull()
+    expect(screen.queryByRole('tab', { name: /validation/i })).toBeNull()
+  })
+})
 
-    it('le formateur crée un tutoriel avec URL vidéo', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      mockCreateTutorial.mockResolvedValue(CREATED_TUTORIAL)
-      renderPage()
+describe('TutorialCatalogPage — création d’un tutoriel', () => {
+  it('crée un tutoriel au format post avec un bloc texte', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    mockCreateTutorial.mockResolvedValue(CREATED_TUTORIAL)
+    renderPage()
 
-      await waitFor(() => {
-        screen.getByRole('button', { name: /nouveau tutoriel/i })
-      })
+    await userEvent.click(await screen.findByRole('button', { name: /créer un nouveau tutoriel/i }))
 
-      await userEvent.click(screen.getByRole('button', { name: /nouveau tutoriel/i }))
+    const titleField = await screen.findByLabelText(/^titre/i)
+    await userEvent.clear(titleField)
+    await userEvent.type(titleField, 'Nouveau tutoriel')
 
-      await userEvent.type(screen.getByLabelText(/titre/i), 'Nouveau tutoriel')
-      await userEvent.type(screen.getByLabelText(/matière/i), 'Mathématiques')
-      await userEvent.type(screen.getByLabelText(/niveau/i), 'Terminale')
-      await userEvent.type(screen.getByLabelText(/description/i), 'Description du nouveau tutoriel')
-      await userEvent.type(screen.getByLabelText(/url vidéo/i), 'https://video.example.com/nouveau')
+    // Format post par défaut : un bloc « titre » est déjà présent, on le remplit.
+    const blockField = screen.getByPlaceholderText('Titre de section')
+    await userEvent.type(blockField, 'Un contenu de tutoriel.')
 
-      await userEvent.click(screen.getByRole('button', { name: /créer le tutoriel/i }))
+    await userEvent.click(screen.getByRole('button', { name: /créer le tutoriel/i }))
 
-      await waitFor(() => {
-        // Après création, le titre apparaît dans la liste ("Nouveau tutoriel" dans un <p>)
-        // et aussi dans le bouton "Nouveau tutoriel" — utiliser getAllByText
-        const matches = screen.getAllByText('Nouveau tutoriel')
-        expect(matches.length).toBeGreaterThanOrEqual(1)
-      })
-
+    await waitFor(() => {
       expect(mockCreateTutorial).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Nouveau tutoriel',
-          videoUrl: 'https://video.example.com/nouveau',
+          format: 'post',
+          blocks: [{ category: 'title', content: 'Un contenu de tutoriel.' }],
         }),
       )
     })
 
-    it('le formateur crée un tutoriel sans URL vidéo (optionnel)', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      mockCreateTutorial.mockResolvedValue({ ...CREATED_TUTORIAL, videoUrl: undefined })
-      renderPage()
+    await waitFor(() => {
+      expect(screen.getByText(/créé avec succès/)).toBeDefined()
+    })
+  })
 
-      await waitFor(() => {
-        screen.getByRole('button', { name: /nouveau tutoriel/i })
-      })
+  it('le format vidéo exige une URL avant soumission', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    renderPage()
 
-      await userEvent.click(screen.getByRole('button', { name: /nouveau tutoriel/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /créer un nouveau tutoriel/i }))
 
-      await userEvent.type(screen.getByLabelText(/titre/i), 'Nouveau tutoriel')
-      await userEvent.type(screen.getByLabelText(/matière/i), 'Mathématiques')
-      await userEvent.type(screen.getByLabelText(/niveau/i), 'Terminale')
-      await userEvent.type(screen.getByLabelText(/description/i), 'Description')
-      // Ne pas renseigner l'URL vidéo
+    const titleField = await screen.findByLabelText(/^titre/i)
+    await userEvent.clear(titleField)
+    await userEvent.type(titleField, 'Tuto vidéo')
 
-      await userEvent.click(screen.getByRole('button', { name: /créer le tutoriel/i }))
+    await userEvent.click(screen.getByRole('radio', { name: /vidéo/i }))
 
-      await waitFor(() => {
-        // Le titre apparaît dans la liste après création
-        const matches = screen.getAllByText('Nouveau tutoriel')
-        expect(matches.length).toBeGreaterThanOrEqual(1)
-      })
+    const videoUrlField = screen.getByLabelText(/adresse de la vidéo/i)
+    expect(videoUrlField).toHaveProperty('required', true)
 
-      expect(mockCreateTutorial).toHaveBeenCalledWith(
-        expect.objectContaining({ videoUrl: undefined }),
-      )
+    expect(mockCreateTutorial).not.toHaveBeenCalled()
+  })
+})
+
+describe('TutorialCatalogPage — validation intégrée (RP)', () => {
+  it('affiche un tutoriel en attente dans l’onglet Validation et permet de le valider', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchPendingTutorials.mockResolvedValue({ items: [PENDING_TUTORIAL], total: 1 })
+    mockDecideTutorialValidation.mockResolvedValue(undefined)
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: /validation/i }))
+
+    const validationPanel = screen.getByRole('tabpanel', { name: /validation/i })
+    await waitFor(() => {
+      expect(within(validationPanel).getByText('Introduction aux intégrales')).toBeDefined()
     })
 
-    it('affiche une erreur 403 si le rôle n\'est pas autorisé', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      mockCreateTutorial.mockRejectedValue({ response: { status: 403 } })
-      renderPage()
+    await userEvent.click(within(validationPanel).getByRole('button', { name: /valider/i }))
 
-      await waitFor(() => {
-        screen.getByRole('button', { name: /nouveau tutoriel/i })
-      })
-
-      await userEvent.click(screen.getByRole('button', { name: /nouveau tutoriel/i }))
-
-      await userEvent.type(screen.getByLabelText(/titre/i), 'Test')
-      await userEvent.type(screen.getByLabelText(/matière/i), 'Maths')
-      await userEvent.type(screen.getByLabelText(/niveau/i), 'Terminale')
-      await userEvent.type(screen.getByLabelText(/description/i), 'Desc')
-
-      await userEvent.click(screen.getByRole('button', { name: /créer le tutoriel/i }))
-
-      await waitFor(() => {
-        expect(screen.getByText(/Vous n'êtes pas autorisé à créer un tutoriel/)).toBeDefined()
-      })
-    })
-
-    it('le bouton Annuler ferme le formulaire sans appeler l\'API', async () => {
-      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-      mockFetchTutorials.mockResolvedValue([])
-      renderPage()
-
-      await waitFor(() => {
-        screen.getByRole('button', { name: /nouveau tutoriel/i })
-      })
-
-      await userEvent.click(screen.getByRole('button', { name: /nouveau tutoriel/i }))
-      expect(screen.getByText('Créer un tutoriel')).toBeDefined()
-
-      await userEvent.click(screen.getByRole('button', { name: /annuler/i }))
-
-      expect(screen.queryByText('Créer un tutoriel')).toBeNull()
-      expect(mockCreateTutorial).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockDecideTutorialValidation).toHaveBeenCalledWith('tuto-pending', 'validated', undefined)
     })
   })
 })

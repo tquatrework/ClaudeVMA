@@ -6,8 +6,27 @@
  * partout ailleurs) : plafonds explicites plutôt que des tableaux illimités.
  */
 
-/** Longueur maximale du contenu d'un bloc titre/texte, alignée sur l'item d'Exercice (`EXERCISE_ITEM_CONTENT_MAX_LENGTH`). */
-export const TUTORIAL_BLOCK_CONTENT_MAX_LENGTH = 5000;
+/**
+ * Longueur maximale du contenu d'un bloc `text` — relevée le 2026-09-03
+ * (docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md,
+ * "Éditeur riche (WYSIWYG)...", point 3) : ce champ portait du texte brut
+ * avec syntaxe légère (plafond initial 5000, aligné sur
+ * `EXERCISE_ITEM_CONTENT_MAX_LENGTH`), il porte désormais un document
+ * structuré (JSON de l'éditeur riche front, ex. TipTap/ProseMirror) pour un
+ * même contenu visible. Le format JSON à nœuds/marques ajoute un surcoût
+ * structurel significatif (enveloppe de chaque paragraphe/marque/nœud
+ * inline) par rapport au texte brut équivalent — 20 000 caractères
+ * (facteur ~4x) laisse une marge raisonnable pour un bloc de texte
+ * richement formaté sans devenir un champ non borné. Reste très en-dessous
+ * du plafond de corps JSON entier (`TUTORIAL_JSON_BODY_MAX_BYTES`,
+ * 900 000 octets, partagé avec les blocs image) qui plafonne de toute façon
+ * l'agrégat d'une requête entière — ce plafond par bloc est une défense en
+ * profondeur, pas la seule limite.
+ *
+ * Aucune validation de structure interne n'est ajoutée : le service ne
+ * connaît pas la forme du document riche, seule sa taille est bornée.
+ */
+export const TUTORIAL_BLOCK_CONTENT_MAX_LENGTH = 20_000;
 
 /** Longueur maximale de la description courte du Tutoriel — champ nouveau pour ce type (2026-09-03), sans contrainte métier particulière au-delà d'un plafond de texte long, comme partout ailleurs dans ce projet. */
 export const TUTORIAL_DESCRIPTION_MAX_LENGTH = 2000;

@@ -3260,7 +3260,20 @@ modèle du chantier de juin 2026 (`tutorialType` académie/activité/news, `form
 `textContent` scalaire, toujours `DRAFT` à la création, aucune unicité de titre, aucun scoping AP —
 0 ligne en base au moment de la refonte, migration `CleanupPreRefonteTutorialData1800000000000`).
 Une seule entité `Tutorial`, deux formats exclusifs : **`video`** (`videoUrl` obligatoire, aucun
-bloc) et **`post`** (séquence ordonnée de blocs `title`/`text`/`image`, `videoUrl` interdit).
+bloc) et **`post`** (séquence ordonnée de blocs `text`/`image`, `videoUrl` interdit).
+**Révision du 2026-09-03** ("Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel 'post'",
+`docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md`) : la catégorie de bloc
+`title` a été retirée, fusionnée dans `text` (migration de données
+`RemoveTutorialBlockTitleCategory1801000000000`, 0 ligne réelle affectée à ce jour) — un titre
+devient un texte affiché en grande taille/gras via l'éditeur riche front. Le contenu d'un bloc
+`text` porte désormais un **document structuré opaque** (JSON de l'éditeur riche front, ex.
+TipTap/ProseMirror) au lieu de texte brut avec syntaxe légère — ce service ne parse ni
+n'interprète ce contenu, seule sa taille est plafonnée (`TUTORIAL_BLOCK_CONTENT_MAX_LENGTH`,
+relevé de 5 000 à **20 000 caractères** pour absorber le surcoût structurel du JSON à
+nœuds/marques par rapport au texte brut équivalent). C'est la seule exception du projet à la
+syntaxe légère texte brut posée le 2026-08-26 — Memo, Quizz et cahier de texte gardent cette
+syntaxe légère, inchangés par cette révision. Format `video`, catégorie de bloc `image`, droits
+et validation : inchangés.
 Métadonnées alignées sur `Evaluation`/`Exercise` (`theme`, `tags`, `level`, `difficulty`,
 `competencies`), `description` étant nouveau pour ce type de contenu. Droits et cycle de validation
 alignés point par point sur Quizz/Exercice/Évaluation : créateurs formateur/AP/RP, statut fixé au
@@ -3276,7 +3289,7 @@ aucun second service d'image écrit pour ce chantier.
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /tutorials | Rechercher les tutoriels visibles par l'appelant, filtrables par `format`, `level`, `difficulty`, `theme`, `tag` (`ANY(tags)`), `keyword` (titre), `authorId`, paginés. Un tutoriel non validé reste invisible sauf à son auteur, au RP (illimité) et à l'AP (scopé `animator_of_teacher`) | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
-| POST | /tutorials | Créer un tutoriel. `400` si le titre est vide, si `format=video` sans `videoUrl` ou avec des `blocks`, si `format=post` avec `videoUrl`, si un bloc `title`/`text` est sans `content`, si un bloc `image` est sans `imageData`, ou si `linkedQuizId` ne correspond à aucun Quizz existant (n'importe quel statut accepté à l'écriture). **Collision de titre avec un autre tutoriel du même auteur** : disambiguation automatique par suffixe `"(N)"` (jamais de `400`), fermée par un index UNIQUE `(authorId, title)` + retry borné (10 tentatives, `409` si épuisé) — même mécanisme exact que Quizz/Exercice/Évaluation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicTutorialDetail` · `400` · `403` · `409` |
+| POST | /tutorials | Créer un tutoriel. `400` si le titre est vide, si `format=video` sans `videoUrl` ou avec des `blocks`, si `format=post` avec `videoUrl`, si un bloc `text` est sans `content`, si un bloc `image` est sans `imageData`, ou si `linkedQuizId` ne correspond à aucun Quizz existant (n'importe quel statut accepté à l'écriture). **Collision de titre avec un autre tutoriel du même auteur** : disambiguation automatique par suffixe `"(N)"` (jamais de `400`), fermée par un index UNIQUE `(authorId, title)` + retry borné (10 tentatives, `409` si épuisé) — même mécanisme exact que Quizz/Exercice/Évaluation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicTutorialDetail` · `400` · `403` · `409` |
 | PUT | /tutorials/:id | Modifier un tutoriel, réservé à son auteur. Remplacement intégral (blocs et images compris — à renvoyer explicitement en base64 pour les conserver). Mêmes règles de validation et de disambiguation de titre qu'à la création (le tutoriel édité est exclu de son propre contrôle d'unicité) | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `200 PublicTutorialDetail` · `400` · `403` · `404` · `409` |
 | GET | /tutorials/default-title | Suggère un titre par défaut (`"Tutoriel (N)"`), `N` = nombre de tutoriels déjà créés par l'appelant + 1 — à lire par le front à l'ouverture du formulaire de création | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {title}` — ex. `{"title":"Tutoriel (2)"}` · `401` |
 | GET | /tutorials/image-constraints | Plafonds applicables à un bloc image (entrée/sortie/corps JSON) — mêmes valeurs que `GET /exercises/image-constraints`, mêmes classes de stockage/transcodage réutilisées | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {maxImageInputBytes, maxImageOutputBytes, maxRequestBodyBytes}` · `401` |
@@ -3289,10 +3302,15 @@ aucun second service d'image écrit pour ce chantier.
 
 Body `POST`/`PUT /tutorials` : `{title, description?, theme?, tags?: string[], level?, difficulty?,
 competencies?: string[], format: "video"|"post", videoUrl?, linkedQuizId?,
-blocks?: [{category: "title"|"text"|"image", content?, imageData?, imageOriginalFilename?}]}`.
-`content` porte la syntaxe légère déjà en place ailleurs dans le projet ($...$/$$...$$ pour une
-formule KaTeX, `[label](url)` pour un lien) — texte brut stocké tel quel côté serveur, transformé au
-rendu côté client uniquement, aucune validation serveur ne rejette les caractères `$`/`\`.
+blocks?: [{category: "text"|"image", content?, imageData?, imageOriginalFilename?}]}`.
+**Depuis le 2026-09-03**, `content` d'un bloc `text` porte un document structuré opaque (JSON de
+l'éditeur riche front, ex. TipTap/ProseMirror) plutôt que du texte brut avec syntaxe légère — ce
+service ne parse ni n'interprète ce contenu, il le stocke et le restitue tel quel, seule sa taille
+est plafonnée (`TUTORIAL_BLOCK_CONTENT_MAX_LENGTH = 20 000` caractères, relevé de 5 000). C'est la
+seule exception du projet à la syntaxe légère texte brut ($...$/$$...$$ pour une formule KaTeX,
+`[label](url)` pour un lien, arbitrage du 2026-08-26) : Memo, Quizz et cahier de texte gardent
+cette syntaxe légère, inchangés par cette révision. La catégorie de bloc `title` est retirée,
+fusionnée dans `text` : `POST`/`PUT /tutorials` refusent `400` toute valeur `category: "title"`.
 
 **Pas d'import CSV/Excel pour ce type de contenu** (contrairement à Quizz/Exercice) — non demandé
 par l'arbitrage, pas construit par anticipation.

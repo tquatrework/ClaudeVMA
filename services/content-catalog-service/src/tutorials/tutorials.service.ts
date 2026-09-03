@@ -221,7 +221,7 @@ export class TutorialsService {
     }
   }
 
-  /** `title`/`text` : content requis, pas d'image. `image` : imageData requis, content devient une légende optionnelle. */
+  /** `text` : content requis, pas d'image. `image` : imageData requis, content devient une légende optionnelle. */
   private validateBlockDto(block: CreateTutorialBlockDto, index: number): void {
     const position = index + 1;
 

@@ -86,7 +86,7 @@ const validPostDto = {
   title: 'Tutoriel bases algèbre',
   format: TutorialFormat.POST,
   blocks: [
-    { category: TutorialBlockCategory.TITLE, content: 'Introduction' },
+    { category: TutorialBlockCategory.TEXT, content: 'Introduction' },
     { category: TutorialBlockCategory.TEXT, content: 'Contenu du tutoriel...' },
   ],
 };
@@ -211,7 +211,7 @@ describe('TutorialsService', () => {
     it('lève BadRequestException si un tutoriel vidéo porte des blocs', async () => {
       await expect(
         tutorialsService.create(
-          { ...validVideoDto, blocks: [{ category: TutorialBlockCategory.TITLE, content: 'x' }] } as any,
+          { ...validVideoDto, blocks: [{ category: TutorialBlockCategory.TEXT, content: 'x' }] } as any,
           FORMATEUR_ID,
           'formateur',
         ),

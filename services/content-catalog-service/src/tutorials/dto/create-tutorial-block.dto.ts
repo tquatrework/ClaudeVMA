@@ -4,25 +4,28 @@ import { TutorialBlockCategory } from '../enums/tutorial-block-category.enum';
 import { TUTORIAL_BLOCK_CONTENT_MAX_LENGTH, TUTORIAL_IMAGE_BASE64_MAX_LENGTH } from '../tutorial.constants';
 
 /**
- * Bloc de la séquence ordonnée d'un Tutoriel au format `post` — 3 catégories
- * (`title`/`text`/`image`, arbitrage du 2026-09-03). Contrairement à
+ * Bloc de la séquence ordonnée d'un Tutoriel au format `post` — 2 catégories
+ * (`text`/`image`, arbitrage du 2026-09-03, révisé le même jour par
+ * "Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel 'post'" : la
+ * catégorie `title` est retirée, fusionnée dans `text`). Contrairement à
  * `CreateExercisePartDto`, un bloc de Tutoriel n'a pas de structure d'items
- * imbriqués : `content` porte directement le texte du bloc titre/texte, sur
- * le même mécanisme d'image en base64 que l'Exercice pour `image`.
+ * imbriqués : `content` porte directement le contenu du bloc texte, sur le
+ * même mécanisme d'image en base64 que l'Exercice pour `image`.
  *
- * Les règles structurelles croisées (content requis pour title/text,
- * imageData requis pour image) sont vérifiées côté service
+ * Les règles structurelles croisées (content requis pour text, imageData
+ * requis pour image) sont vérifiées côté service
  * (`TutorialsService.validateBlockDto`/`buildBlockEntities`), pas ici.
  */
 export class CreateTutorialBlockDto {
-  @ApiProperty({ enum: TutorialBlockCategory, description: 'Catégorie du bloc : titre, texte ou image' })
+  @ApiProperty({ enum: TutorialBlockCategory, description: 'Catégorie du bloc : texte ou image' })
   @IsEnum(TutorialBlockCategory)
   category: TutorialBlockCategory;
 
   @ApiPropertyOptional({
     description:
-      'Contenu texte du bloc — requis pour "title"/"text" (peut contenir la syntaxe légère du projet : ' +
-      '$...$/$$...$$ pour une formule, [label](url) pour un lien). Légende optionnelle pour "image".',
+      'Contenu du bloc — requis pour "text". Document structuré opaque produit par l\'éditeur riche front ' +
+      '(ex. schéma TipTap/ProseMirror) : ce service ne parse ni n\'interprète ce contenu, il le stocke et le ' +
+      "restitue tel quel, seule sa taille est plafonnée. Légende optionnelle (texte simple) pour \"image\".",
     maxLength: TUTORIAL_BLOCK_CONTENT_MAX_LENGTH,
   })
   @IsOptional()

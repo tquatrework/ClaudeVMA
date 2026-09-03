@@ -95,7 +95,7 @@ export class CreateTutorialDto {
 
   @ApiPropertyOptional({
     description:
-      'Séquence ordonnée de blocs (titre/texte/image) — pertinente uniquement pour format=post, ' +
+      'Séquence ordonnée de blocs (texte/image) — pertinente uniquement pour format=post, ' +
       'interdite pour format=video. Un post peut être vide ou librement structuré.',
     type: [CreateTutorialBlockDto],
   })

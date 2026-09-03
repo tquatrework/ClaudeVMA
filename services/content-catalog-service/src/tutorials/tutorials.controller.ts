@@ -65,7 +65,7 @@ export class TutorialsController {
   @ApiOperation({
     summary: 'Créer un tutoriel',
     description:
-      'Crée un tutoriel au format vidéo (videoUrl) ou post (séquence ordonnée de blocs titre/texte/image). ' +
+      'Crée un tutoriel au format vidéo (videoUrl) ou post (séquence ordonnée de blocs texte/image). ' +
       'Une image de bloc se dépose directement en base64 dans ce même appel (voir GET /tutorials/image-constraints ' +
       'pour les plafonds). Un tutoriel créé par un formateur passe en attente de validation ; un tutoriel créé ' +
       'par un AP ou un RP est auto-validé.',

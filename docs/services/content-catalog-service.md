@@ -57,7 +57,7 @@
       <endpoint method="GET" path="/evaluations/{id}">Renvoie desormais le bareme informatif eventuel (scoring, null si non defini) en plus des champs deja exposes (ajoute le 2026-09-02). Meme jour : corrige l'absence totale de controle d'acces (auparavant ouverte a tout appelant authentifie quel que soit le statut) — non-valide desormais invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher.</endpoint>
       <endpoint method="RETIRE" path="/evaluations/{id}/attempts">Retiree le 2026-09-01 avec EvaluationAttempt (jamais utilisee reellement, migre vers learning-activity-service).</endpoint>
       <endpoint method="GET" path="/tutorials">Rechercher tutos/videos, filtrable par tag (ANY(tags)), format (video|post), niveau, difficulte, theme, mot-cle (titre) et auteur, pagine. Refonte complete du 2026-09-03 (branche feat/tutorial-rebuild) : remplace l'ancien modele academie/activite/news x texte/mixte/video.</endpoint>
-      <endpoint method="POST" path="/tutorials">Creer un tutoriel, deux formats exclusifs (video : videoUrl obligatoire, aucun bloc ; post : sequence ordonnee de blocs titre/texte/image, videoUrl interdit). Titre obligatoire et unique par auteur (disambiguation automatique par suffixe "(N)", meme mecanisme que Quizz/Exercice/Evaluation). linkedQuizId optionnel, existence verifiee a l'ecriture (400 si Quizz introuvable), quel que soit son statut. Statut initial selon le role : pending_validation pour un formateur, validated pour AP/RP (refonte du 2026-09-03).</endpoint>
+      <endpoint method="POST" path="/tutorials">Creer un tutoriel, deux formats exclusifs (video : videoUrl obligatoire, aucun bloc ; post : sequence ordonnee de blocs texte/image, videoUrl interdit — categorie title retiree/fusionnee dans text le 2026-09-03, voir TutorialBlock). Titre obligatoire et unique par auteur (disambiguation automatique par suffixe "(N)", meme mecanisme que Quizz/Exercice/Evaluation). linkedQuizId optionnel, existence verifiee a l'ecriture (400 si Quizz introuvable), quel que soit son statut. Statut initial selon le role : pending_validation pour un formateur, validated pour AP/RP (refonte du 2026-09-03).</endpoint>
       <endpoint method="PUT" path="/tutorials/{id}">Modifier un tutoriel, reserve a son auteur. Remplacement integral (blocs et images compris — a renvoyer explicitement en base64 pour les conserver). Un auteur formateur repasse en pending_validation ; un auteur AP/RP ne change pas de statut. Meme disambiguation de titre qu'a la creation (ajoute le 2026-09-03).</endpoint>
       <endpoint method="GET" path="/tutorials/default-title">Suggerer un titre par defaut ("Tutoriel (N)"), N = nombre de tutoriels deja crees par l'appelant + 1 — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-03). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/tutorials/image-constraints">Plafonds d'image (entree/sortie/corps JSON) pour un bloc image de tutoriel — reutilise directement ExerciseImageStorageService/ExerciseImageTranscoder (meme volume, meme transcodeur que l'Exercice), lus par le front avant d'afficher le bouton d'ajout (ajoute le 2026-09-03).</endpoint>
@@ -98,7 +98,7 @@
         <note>Refonte complete du 2026-09-03 (branche feat/tutorial-rebuild) : remplace l'ancien modele (tutorialType academie/activite/news, format texte/mixte/video, textContent scalaire, imageUrl scalaire, toujours DRAFT a la creation, sans unicite de titre). Nouveau modele : titre obligatoire et unique par auteur (index UNIQUE partiel (authorId,title) WHERE status != 'removed', pose directement par @Index sur l'entite — table neuve, pas de migration de fermeture de fenetre separee comme pour Exercise/Quiz), theme/tags(text[])/level/difficulty/competencies alignes sur Evaluation/Exercise, description (nouveau champ), format (video|post, un seul jeu de champs pertinent par format, verifie en service), videoUrl (format video), linkedQuizId (reference optionnelle vers un Quiz existant, existence verifiee a l'ecriture, exposition en lecture filtree par le statut validated du Quiz). Cycle de validation aligne point par point sur Quizz/Exercice/Evaluation (pending_validation formateur, validated AP/RP, AP scope animator_of_teacher — la table `content_validations`/ValidationsService couvrait deja Tutorial mais sans ce scoping avant ce chantier). Voir migration CleanupPreRefonteTutorialData1800000000000 (DROP TABLE + types enum resolus dynamiquement, reconstruction assumee, aucune donnee pre-refonte a preserver — 0 ligne verifiee en production avant la migration).</note>
       </entity>
       <entity name="TutorialBlock">
-        <note>Ajoutee le 2026-09-03 — bloc ordonne (blockNumber) d'un Tutoriel au format post, 3 categories title|text|image. Contrairement a ExercisePart/ExerciseContentItem, un bloc de Tutoriel EST directement son contenu (pas de table d'items imbriquee) : content (texte brut, syntaxe legere $...$/[label](url) rendue cote client) pour title/text, champs image* (originalFilename/storedFilename/mimeType/sizeBytes) pour image — memes colonnes et meme mecanisme de stockage que ExerciseContentItem, en reutilisant directement ExerciseImageStorageService/ExerciseImageTranscoder (memes classes injectees dans TutorialsModule via l'import d'ExercisesModule, meme volume Docker `content_catalog_exercise_images`) plutot que d'en ecrire un second.</note>
+        <note>Ajoutee le 2026-09-03 — bloc ordonne (blockNumber) d'un Tutoriel au format post, 2 categories text|image (REVISE le 2026-09-03 par "Editeur riche WYSIWYG pour les blocs texte du Tutoriel post" : la categorie title a ete retiree, fusionnee dans text — migration de donnees 1801000000000-RemoveTutorialBlockTitleCategory, 0 ligne reelle affectee, aucun bloc title n'existait en base au moment de cette revision, livree le meme jour que la creation du modele). Contrairement a ExercisePart/ExerciseContentItem, un bloc de Tutoriel EST directement son contenu (pas de table d'items imbriquee) : content pour text porte desormais un document structure OPAQUE (JSON de l'editeur riche front, ex. TipTap/ProseMirror — plus du texte brut avec syntaxe legere), donnee jamais parsee ni interpretee par ce service, seule sa taille est plafonnee (TUTORIAL_BLOCK_CONTENT_MAX_LENGTH releve de 5000 a 20000 caracteres pour absorber le surcout structurel JSON) ; champs image* (originalFilename/storedFilename/mimeType/sizeBytes) pour image, inchanges — memes colonnes et meme mecanisme de stockage que ExerciseContentItem, en reutilisant directement ExerciseImageStorageService/ExerciseImageTranscoder (memes classes injectees dans TutorialsModule via l'import d'ExercisesModule, meme volume Docker `content_catalog_exercise_images`) plutot que d'en ecrire un second.</note>
       </entity>
       <entity>ContentComment</entity>
       <entity>ContentRating</entity>
@@ -2149,6 +2149,96 @@
             /exercises/:id (RolesGuard restreint a RP/TI, alors que le service autorise aussi
             l'auteur) — non corrigee ici par coherence avec le comportement Exercise, signalee
             pour visibilite si elle doit un jour etre corrigee pour les deux types ensemble.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-03" label="Preparation backend de l'editeur riche WYSIWYG pour les blocs texte du Tutoriel post (branche feat/tutorial-post-wysiwyg-backend-prep)">
+        <objective>
+          Preparer le backend pour l'editeur riche (WYSIWYG) que front-developper construira pour
+          les blocs `text` d'un Tutoriel "post" — arbitrage du 2026-09-03
+          (docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md, "Editeur riche
+          (WYSIWYG) pour les blocs texte du Tutoriel 'post'"), livre le meme jour que la refonte
+          des Tutos/Videos elle-meme. Perimetre strictement backend : (1) retirer la categorie de
+          bloc `title`, fusionnee dans `text` ; (2) relever le plafond de taille de `content` d'un
+          bloc `text`, ce champ devenant un document structure opaque (JSON front) plutot que du
+          texte brut — aucun parsing/validation de structure ajoute cote service ; (3) rien
+          d'autre ne change (format `video`, categorie `image`, droits, validation).
+        </objective>
+        <investigation>
+          Verification prealable de l'etat reel des donnees avant migration (consigne explicite de
+          la delegation, pas supposee) : le modele Tutorial/TutorialBlock ayant ete livre le meme
+          jour (PR #215/#217, session precedente), aucun bloc de categorie `title` n'existait en
+          base au moment de cette session — la migration de donnees reste neanmoins ecrite et
+          testee de facon generale (elle migre toute ligne `category='title'` qu'elle en trouve,
+          pas seulement le cas "0 ligne" constate ici), pour rester correcte si des blocs `title`
+          avaient deja ete crees entre les deux chantiers.
+        </investigation>
+        <filesAdded>
+          <file path="src/migrations/1801000000000-RemoveTutorialBlockTitleCategory.ts">Migre toute ligne `tutorial_blocks.category='title'` vers `'text'`, sous garde `to_regclass` (idempotente, sure sur base neuve) — AVANT que `synchronize` (NODE_ENV=development actif sur la pile reelle, ordre migrations-avant-synchronize deja etabli) ne tente de recreer le type enum Postgres sans la valeur `title` : un cast de ligne existante vers une valeur absente du nouveau type ferait echouer `synchronize` au demarrage. Postgres ne permet pas de retirer une valeur d'un type enum directement (meme limite deja documentee par AddImagePartCategoryEnum1792000000000 pour l'ajout) — le mecanisme standard de TypeORM pour un changement de jeu de valeurs enum recree le type et CASTe la colonne, ce qui necessite qu'aucune ligne ne porte plus l'ancienne valeur.</file>
+          <file path="test/unit/migrations/remove-tutorial-block-title-category.spec.ts">Smoke test sur le modele des autres migrations de ce service — QueryRunner mocque, verifie la garde to_regclass, l'UPDATE emis, l'absence d'UPDATE sur base neuve, down() sans effet, migration.name.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/tutorials/enums/tutorial-block-category.enum.ts">TITLE retire ; ne porte plus que TEXT et IMAGE.</file>
+          <file path="src/tutorials/entities/tutorial-block.entity.ts">Commentaires mis a jour (content = document structure opaque pour text, plus texte brut).</file>
+          <file path="src/tutorials/dto/create-tutorial-block.dto.ts">Description Swagger de `category` et `content` mises a jour (texte/image seulement ; content decrit comme document structure opaque produit par l'editeur riche front, jamais parse/interprete cote service).</file>
+          <file path="src/tutorials/dto/create-tutorial.dto.ts">Commentaire de `blocks` mis a jour (texte/image, plus titre/texte/image).</file>
+          <file path="src/tutorials/tutorial.constants.ts">`TUTORIAL_BLOCK_CONTENT_MAX_LENGTH` releve de 5000 a 20000 caracteres (facteur ~4x, marge pour l'overhead structurel du JSON a noeuds/marques vs texte brut equivalent) — reste tres en-dessous de `TUTORIAL_JSON_BODY_MAX_BYTES` (900000 octets, plafond de corps entier partage avec les blocs image), ce plafond par bloc restant une defense en profondeur.</file>
+          <file path="src/tutorials/tutorials.service.ts">Commentaire de `validateBlockDto()` mis a jour (text au lieu de title/text) — aucune logique modifiee, `Object.values(TutorialBlockCategory)` ne contient plus TITLE donc `category:'title'` est deja rejete par `IsEnum` cote DTO avant meme d'atteindre le service.</file>
+          <file path="src/tutorials/tutorials.controller.ts">Description Swagger de POST /tutorials mise a jour (blocs texte/image).</file>
+          <file path="test/unit/tutorials/create-tutorial.dto.spec.ts">Test utilisant TITLE remplace par TEXT ; nouveau test explicite de rejet `category:'title'` ; deux nouveaux tests de bornes sur le nouveau plafond (20000 caracteres accepte, 20001 rejete).</file>
+          <file path="test/unit/tutorials/tutorials.service.spec.ts">Deux usages de TITLE remplaces par TEXT (validPostDto, test "video ne porte pas de blocs") — comportement inchange, seule la categorie utilisee dans la fixture change.</file>
+          <file path="docs/routes.md">Section "Tutoriels" mise a jour : categories de bloc (text|image), semantique de `content` (document structure opaque, plus syntaxe legere pour ce champ precis), nouveau plafond 20000, refus explicite de `category:'title'`.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Categorie `title` retiree du code TypeScript ET migree en base (pas seulement
+            retiree du cote applicatif en laissant d'eventuelles lignes orphelines) — coherent
+            avec la regle du projet "un champ non prevu doit etre refuse explicitement, jamais
+            absorbe en silence" appliquee ici a l'inverse : une valeur qui disparait du modele ne
+            doit pas non plus laisser de donnees incoherentes derriere elle.
+          </decision>
+          <decision>
+            `content` reste un champ texte SQL (`type: 'text'`) cote entite, aucun changement de
+            colonne — le document structure du futur editeur riche est simplement serialise en
+            JSON par le front avant envoi, exactement comme n'importe quelle chaine de caracteres
+            aujourd'hui. Aucune validation de structure interne ajoutee cote service (DTO/entite),
+            conformement au point 3 de l'arbitrage : "le service ne connait pas la forme du
+            document riche, seule sa taille est bornee".
+          </decision>
+          <decision>
+            Migration de donnees ecrite de facon generale (UPDATE sur toute ligne 'title'
+            trouvee) plutot que court-circuitee sur le seul cas "0 ligne" constate — la
+            delegation demandait explicitement de verifier l'etat reel plutot que de le supposer,
+            et une migration qui suppose silencieusement "0 ligne" sans le verifier a l'execution
+            serait le meme defaut que celui que la verification visait a eviter.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npx jest --testPathPattern=tutorial` : 62/62 tests verts (5 suites, dont les 2
+            nouveaux/modifies de cette session).</item>
+          <item>`npx jest` (suite complete du service) : 464/464 tests verts, 42 suites — aucune
+            regression sur les autres types de contenu (Quizz/Exercice/Evaluation partagent
+            `ValidationsService` et certains plafonds via `exercise.constants.ts`, tous inchanges
+            et couverts par leurs propres suites, toujours vertes).</item>
+          <item>`npm run build` : 0 erreur TypeScript.</item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Preuve HTTP directe contre la pile reelle non faite dans cette session (contexte de
+            reprise apres interruption de limite de taux API — voir historique de session) : les
+            changements sont verifies par tests unitaires et build uniquement. A faire avant/au
+            merge : `POST /tutorials` avec un bloc `category:'title'` -&gt; `400` ; bloc `text`
+            avec un contenu de ~20000 caracteres -&gt; `201` ; au-dela -&gt; `400` ; deploiement et
+            verification de la migration (`migration:show`, aucune ligne `category='title'`
+            residuelle si des donnees de test en portaient depuis la session precedente).
+          </point>
+          <point>
+            Contrat front non encore construit (`front-developper`, hors perimetre de cette
+            session) : editeur riche TipTap/ProseMirror, palette de tailles/couleurs predefinies,
+            formule KaTeX en noeud inline — a livrer separement, ce backend prep n'est qu'un
+            prealable qui laisse `content` opaque et suffisamment large pour l'accueillir.
           </point>
         </openPoints>
       </session>

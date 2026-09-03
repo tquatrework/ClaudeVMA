@@ -12,12 +12,15 @@ import { TutorialBlockCategory } from '../enums/tutorial-block-category.enum';
 
 /**
  * TutorialBlock — bloc ordonné d'un Tutoriel au format `post` (refonte du
- * 2026-09-03). Contrairement à `ExercisePart`/`ExerciseContentItem` (bloc +
- * items imbriqués), un bloc de Tutoriel EST directement son contenu : pas de
- * table d'items séparée, un simple champ `content` suffit pour `title`/
- * `text` (texte brut, syntaxe légère rendue côté client), et les mêmes
- * colonnes image que `ExerciseContentItem` pour `image` (mécanisme
- * d'upload/stockage/ré-encodage réutilisé tel quel).
+ * 2026-09-03, révisée le même jour par "Éditeur riche (WYSIWYG) pour les
+ * blocs texte du Tutoriel 'post'"). Contrairement à `ExercisePart`/
+ * `ExerciseContentItem` (bloc + items imbriqués), un bloc de Tutoriel EST
+ * directement son contenu : pas de table d'items séparée, un simple champ
+ * `content` suffit pour `text` (document structuré de l'éditeur riche front,
+ * donnée opaque pour ce service — plus du texte brut, la catégorie `title`
+ * a été retirée et fusionnée dans `text`), et les mêmes colonnes image que
+ * `ExerciseContentItem` pour `image` (mécanisme d'upload/stockage/
+ * ré-encodage réutilisé tel quel, inchangé par cette révision).
  *
  * `blockNumber` porte l'ordre explicite de la séquence, plusieurs blocs de
  * chaque catégorie étant possibles et librement entrelacés (arbitrage du
@@ -45,7 +48,7 @@ export class TutorialBlock {
   })
   category: TutorialBlockCategory;
 
-  /** Texte du bloc pour `title`/`text` (requis), légende optionnelle pour `image`. */
+  /** Contenu du bloc pour `text` (requis, document structuré opaque), légende optionnelle pour `image`. */
   @Column({ type: 'text', nullable: true })
   content: string | null;
 

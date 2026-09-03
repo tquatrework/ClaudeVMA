@@ -63,17 +63,29 @@ describe('buildTutorialCreatePayload — validations de base', () => {
     block.content = '   '
     const state = baseState({ format: 'post', blocks: [block] })
     expect(() => buildTutorialCreatePayload(state, EMPTY_IMAGE_MAP)).toThrow(
-      'Ajoutez au moins un bloc avec du contenu (titre, texte ou image).',
+      'Ajoutez au moins un bloc avec du contenu (texte ou image).',
     )
   })
 
-  it('omet silencieusement un bloc titre/texte vide, sans le refuser individuellement', () => {
+  it('omet silencieusement un bloc texte vide, sans le refuser individuellement', () => {
     const filled = createEditableTutorialBlock('text')
     filled.content = 'Contenu réel'
-    const empty = createEditableTutorialBlock('title')
+    const empty = createEditableTutorialBlock('text')
     empty.content = ''
 
     const state = baseState({ format: 'post', blocks: [empty, filled] })
+    const payload = buildTutorialCreatePayload(state, EMPTY_IMAGE_MAP)
+
+    expect(payload.blocks).toEqual([{ category: 'text', content: 'Contenu réel' }])
+  })
+
+  it('omet un bloc texte dont le document structuré ne porte aucun texte ni formule', () => {
+    const filled = createEditableTutorialBlock('text')
+    filled.content = 'Contenu réel'
+    const emptyDoc = createEditableTutorialBlock('text')
+    emptyDoc.content = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] })
+
+    const state = baseState({ format: 'post', blocks: [emptyDoc, filled] })
     const payload = buildTutorialCreatePayload(state, EMPTY_IMAGE_MAP)
 
     expect(payload.blocks).toEqual([{ category: 'text', content: 'Contenu réel' }])
@@ -145,17 +157,17 @@ describe('buildEditableStateForTutorialEdit', () => {
       createdAt: '2026-09-03T00:00:00Z',
       updatedAt: '2026-09-03T00:00:00Z',
       blocks: [
-        { id: 'b1', blockNumber: 1, category: 'title', content: 'Titre du bloc' },
+        { id: 'b1', blockNumber: 1, category: 'text', content: 'Texte du bloc' },
         { id: 'b2', blockNumber: 2, category: 'image', content: 'légende', imageMimeType: 'image/webp' },
       ],
       ...overrides,
     }
   }
 
-  it('reprend les blocs texte/titre tels quels', () => {
+  it('reprend les blocs texte tels quels', () => {
     const state = buildEditableStateForTutorialEdit(publicTutorial())
-    const titleBlock = state.blocks.find((b) => b.category === 'title')
-    expect(titleBlock?.content).toBe('Titre du bloc')
+    const textBlock = state.blocks.find((b) => b.category === 'text')
+    expect(textBlock?.content).toBe('Texte du bloc')
   })
 
   it('reprend un bloc image existant dans `existingImageBlock`', () => {

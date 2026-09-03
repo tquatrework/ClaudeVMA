@@ -220,7 +220,7 @@ describe('TutorialCatalogPage — création d’un tutoriel', () => {
   it('crée un tutoriel au format post avec un bloc texte', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
     mockCreateTutorial.mockResolvedValue(CREATED_TUTORIAL)
-    renderPage()
+    const { container } = renderPage()
 
     await userEvent.click(await screen.findByRole('button', { name: /créer un nouveau tutoriel/i }))
 
@@ -228,9 +228,12 @@ describe('TutorialCatalogPage — création d’un tutoriel', () => {
     await userEvent.clear(titleField)
     await userEvent.type(titleField, 'Nouveau tutoriel')
 
-    // Format post par défaut : un bloc « titre » est déjà présent, on le remplit.
-    const blockField = screen.getByPlaceholderText('Titre de section')
-    await userEvent.type(blockField, 'Un contenu de tutoriel.')
+    // Format post par défaut : un bloc texte est déjà présent, édité via l'éditeur riche
+    // (contentEditable TipTap) — on le remplit en tapant directement dedans.
+    const richTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+    expect(richTextBlock).not.toBeNull()
+    await userEvent.click(richTextBlock)
+    await userEvent.type(richTextBlock, 'Un contenu de tutoriel.')
 
     await userEvent.click(screen.getByRole('button', { name: /créer le tutoriel/i }))
 
@@ -239,7 +242,12 @@ describe('TutorialCatalogPage — création d’un tutoriel', () => {
         expect.objectContaining({
           title: 'Nouveau tutoriel',
           format: 'post',
-          blocks: [{ category: 'title', content: 'Un contenu de tutoriel.' }],
+          blocks: [
+            {
+              category: 'text',
+              content: expect.stringContaining('Un contenu de tutoriel.'),
+            },
+          ],
         }),
       )
     })

@@ -1,5 +1,5 @@
 /**
- * TutorialBlocksSection — séquence de blocs (titre/texte/image) du formulaire Tutoriel au format
+ * TutorialBlocksSection — séquence de blocs (texte/image) du formulaire Tutoriel au format
  * « post ». Extrait de `TutorialForm` pour rester sous le seuil de 300 lignes du fichier de page
  * (règle du projet) — même découpage que `ExercisePartAddButtons`/`ExercisePartEditor` pour
  * l'Exercice.
@@ -43,7 +43,7 @@ export function TutorialBlocksSection({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-800">Blocs (titres, texte et images)</h3>
+      <h3 className="text-sm font-semibold text-gray-800">Blocs (texte et images)</h3>
       {blocks.map((block, index) => (
         <TutorialBlockEditor
           key={block.localId}
@@ -61,14 +61,6 @@ export function TutorialBlocksSection({
         />
       ))}
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => onBlocksChange([...blocks, createEditableTutorialBlock('title')])}
-          disabled={isSubmitting}
-          className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
-        >
-          + Ajouter un titre
-        </button>
         <button
           type="button"
           onClick={() => onBlocksChange([...blocks, createEditableTutorialBlock('text')])}

@@ -8,13 +8,13 @@ import type {
   CreateTutorialBlockPayload,
   CreateTutorialPayload,
   PublicTutorialDetail,
-  TutorialBlockCategory,
   TutorialFormat,
 } from '../types/tutorial'
 import {
   createEditableTutorialBlock,
   type EditableTutorialBlock,
 } from '../components/content-catalog/TutorialBlockEditor'
+import { isTutorialRichTextEmpty, parseTutorialRichTextContent } from './tutorialRichTextContent'
 
 export interface EditableTutorialFormState {
   title: string
@@ -86,15 +86,16 @@ export function buildTutorialCreatePayload(
       return
     }
 
-    // Un bloc titre/texte laissé vide est silencieusement omis, plutôt que refusé — même
-    // discipline que `buildItemsPayload` (exercisePayload.ts) pour les items texte/formule.
-    const trimmedContent = block.content.trim()
-    if (trimmedContent.length === 0) return
-    blocks.push({ category: block.category as Exclude<TutorialBlockCategory, 'image'>, content: trimmedContent })
+    // Un bloc texte laissé vide (document TipTap sans texte ni formule) est silencieusement omis,
+    // plutôt que refusé — même discipline que `buildItemsPayload` (exercisePayload.ts) pour les
+    // items texte/formule.
+    const document = parseTutorialRichTextContent(block.content)
+    if (isTutorialRichTextEmpty(document)) return
+    blocks.push({ category: 'text', content: block.content })
   })
 
   if (blocks.length === 0) {
-    throw new TutorialFormValidationError('Ajoutez au moins un bloc avec du contenu (titre, texte ou image).')
+    throw new TutorialFormValidationError('Ajoutez au moins un bloc avec du contenu (texte ou image).')
   }
 
   return { ...basePayload, format: 'post', blocks }

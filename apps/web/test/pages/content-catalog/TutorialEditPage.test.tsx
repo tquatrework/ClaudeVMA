@@ -89,7 +89,12 @@ describe('TutorialEditPage', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('Tuto existant')).toBeDefined()
     })
-    expect(screen.getByDisplayValue('Texte déjà écrit.')).toBeDefined()
+    // Le bloc texte est désormais édité via l'éditeur riche (contentEditable), pas un champ natif
+    // — le contenu déjà enregistré (texte brut historique) doit apparaître dans le rendu de
+    // l'éditeur plutôt que dans un `<textarea>`.
+    await waitFor(() => {
+      expect(screen.getByText('Texte déjà écrit.')).toBeDefined()
+    })
   })
 
   it('enregistre les modifications puis redirige vers la fiche avec confirmation', async () => {

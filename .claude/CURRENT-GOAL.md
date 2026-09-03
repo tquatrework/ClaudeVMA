@@ -7,6 +7,28 @@
 
 ## Besoin courant
 
+Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel "post", demandé le 2026-09-03 après
+premier retour utilisateur sur le chantier Tutos/Vidéos livré le jour même (voir plus bas, clos).
+Revient sur la syntaxe légère (texte brut + `$...$`) mais **scopée aux tutos uniquement**, confirmé
+explicitement par l'utilisateur — Memo/Quizz/cahier de texte gardent la syntaxe légère. Détail :
+taille de titre/texte + couleur (palette et tailles prédéfinies, pas de liberté totale — proposition
+de l'orchestrateur non contredite), catégorie de bloc `title` retirée et fusionnée dans `text` (un
+titre devient un texte en grande taille via l'éditeur, remarque de l'utilisateur lui-même), formule
+mathématique en nœud inline du document structuré pour hériter la taille du texte environnant
+("à la bonne taille"). Stockage : document structuré (format propre à l'éditeur riche choisi par
+`front-developper`, ex. TipTap/ProseMirror), jamais de HTML brut — évite l'assainissement
+anti-injection qui avait motivé le refus initial du WYSIWYG. Arbitrage complet persisté dans
+`docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md` ("Éditeur riche (WYSIWYG)
+pour les blocs texte du Tutoriel 'post'").
+
+À déléguer : `content-catalog-service` d'abord (retrait de la catégorie `title`, vérification qu'
+aucune donnée réelle n'existe avant migration, plafond de taille du champ `content` à revoir pour un
+document structuré plus volumineux que du texte brut) ; `front-developper` ensuite une fois ce
+contrat stabilisé (choix de la librairie d'édition riche, palette/tailles prédéfinies cohérentes
+avec `.claude/design/front-design.md`, nœud formule KaTeX inline).
+
+---
+
 Refonte des Tutos/Vidéos, demandée le 2026-09-03. Deux formats sur une même entité `Tutorial`
 (`format: 'video' | 'post'`) : vidéo embarquée (URL) ou post (séquence de blocs titre/texte/image,
 texte mathématique via la syntaxe légère déjà en place). Métadonnées alignées sur l'Évaluation

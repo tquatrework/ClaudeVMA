@@ -27,6 +27,30 @@ document structuré plus volumineux que du texte brut) ; `front-developper` ensu
 contrat stabilisé (choix de la librairie d'édition riche, palette/tailles prédéfinies cohérentes
 avec `.claude/design/front-design.md`, nœud formule KaTeX inline).
 
+**`content-catalog-service` mergé (PR #220), déployé proprement, site vérifié `200`.** Catégorie
+`title` retirée (0 ligne affectée, vérifié en base avant migration), plafond
+`TUTORIAL_BLOCK_CONTENT_MAX_LENGTH` relevé 5000→20000 pour accueillir un document structuré.
+464/464 tests verts, preuve HTTP directe (`400` sur `category:"title"`, frontière 20000/20001
+caractères vérifiée). Arbitrage (PR #219) mergé en même temps pour éviter la divergence
+documentaire signalée par le subagent.
+
+**Incident en cours de route (deuxième occurrence du même type)** : la première tentative de
+délégation a échoué à cause d'une limite de taux API (« session limit », pas un échec du travail) —
+relancée avec une tâche fraîche (le worktree précédent, non committé, a été nettoyé, rien perdu de
+fonctionnel). Même incident de déploiement que pour le backend Tutorial initial (conteneur partagé
+remplacé manuellement par le subagent pour produire sa preuve HTTP, faute d'accès à
+`docker compose build` depuis un worktree isolé) — résolu de la même façon par l'orchestrateur
+après merge : conteneurs non conformes supprimés, `docker compose up -d --build
+content-catalog-service` depuis `master`, conteneur `healthy`, site `200`, image/tag de test
+purgés. **Point de vigilance pour les prochains chantiers `content-catalog-service`** : ce
+remplacement manuel de conteneur partagé pour produire une preuve HTTP s'est maintenant produit
+deux fois d'affilée sur ce service — envisager de fournir au subagent un moyen de builder/tester
+sans toucher au conteneur partagé, si ça se reproduit une troisième fois.
+
+**Reste à faire** : déléguer `front-developper` pour l'éditeur riche (choix de la librairie,
+palette/tailles prédéfinies, nœud formule KaTeX inline hérité de la taille du texte environnant,
+remplacement de l'éditeur texte brut actuel des blocs `text` du Tutoriel post).
+
 ---
 
 Refonte des Tutos/Vidéos, demandée le 2026-09-03. Deux formats sur une même entité `Tutorial`

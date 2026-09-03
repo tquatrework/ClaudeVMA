@@ -1,6 +1,7 @@
 # front-developper — 2026-09-03 — Refonte des écrans Tutos/Vidéos
 
-## Statut : ✅ (build + tsc verts, tests Tutoriel verts, PR ouverte non mergée)
+## Statut : ✅ (build + tsc verts, tests Tutoriel verts, forme `PublicTutorialBlock` confirmée en
+HTTP réel contre la production, PR ouverte non mergée)
 
 ## Contexte
 
@@ -31,9 +32,39 @@ ExerciseContentItem") :
 - Le nom des routes de contrainte d'image (`GET /tutorials/image-constraints`) et de titre par
   défaut (`GET /tutorials/default-title`), bien documentés eux, repris tels quels.
 
-Aucune vérification HTTP directe contre la production n'a été faite (pas d'identifiants de test
-disponibles dans ce contexte) — les points déduits sont documentés comme tels dans
-`types/tutorial.ts`, à corriger rapidement si un écart apparaît au premier test réel.
+Aucune vérification HTTP directe contre la production n'avait été faite lors de la livraison
+initiale (pas d'identifiants de test disponibles dans ce contexte) — les points déduits étaient
+documentés comme tels dans `types/tutorial.ts`.
+
+## Vérification HTTP réelle (2026-09-03, reprise post-#215/#216)
+
+`content-catalog-service` (PR #215) étant mergé et redéployé, la forme réelle de
+`PublicTutorialBlock` a été confirmée par des appels directs contre
+`https://claudevma.visioprof.fr` (compte de test formateur créé via `POST /accounts/teachers`) :
+
+1. `POST /tutorials` avec un tutoriel `format: 'post'` portant un bloc `title`, un bloc `text`
+   (formule `$x^2 + 1$` + lien `[VisioMath](url)`) et un bloc `image` (PNG 1x1 encodé en base64,
+   sans préfixe data URI) → `201`, réponse :
+   `{"id":..., "blocks":[{"id":..., "blockNumber":1, "category":"title", "content":"Introduction"},
+   {"id":..., "blockNumber":2, "category":"text", "content":"Voici une formule $x^2 + 1$..."},
+   {"id":..., "blockNumber":3, "category":"image", "content":"légende image",
+   "imageMimeType":"image/webp", "imageSizeBytes":44}]}`.
+2. `GET /tutorials/:id` (en tant qu'auteur, tutoriel `pending_validation`) → `200`, forme
+   identique — confirme la lecture élargie à l'auteur quel que soit le statut.
+3. `GET /tutorials/:id/images/:blockId` → `200`, `Content-Type: image/webp`, octets bruts du
+   fichier WebP (`RIFF ... Web/P image ... 1x1`, vérifié par `file`) — **aucun champ `imageUrl`
+   n'existe dans `PublicTutorialBlock`**, l'image se télécharge exclusivement via cette route
+   séparée en tant que blob, exactement comme documenté et implémenté côté front
+   (`fetchTutorialBlockImageBlob`, `useTutorialBlockImageUrl`, `TutorialBlockImageView`).
+4. `GET /tutorials/default-title` → `200 {"title":"Tutoriel (2)"}` et
+   `GET /tutorials/image-constraints` → `200 {"maxImageInputBytes":600000,
+   "maxImageOutputBytes":500000, "maxRequestBodyBytes":900000}` — conformes aux types
+   `DefaultTutorialTitle`/`TutorialImageConstraints` déjà écrits.
+
+**Conclusion : aucun écart trouvé entre la forme déduite par analogie et la forme réelle du
+serveur.** Le code front livré (`types/tutorial.ts`, `TutorialBlockImageView.tsx`,
+`useTutorialBlockImageUrl.ts`) est conforme tel quel — aucun correctif nécessaire, aucun nouveau
+commit poussé sur cette branche.
 
 ## Ce qui a été livré
 
@@ -117,10 +148,17 @@ plus un test `pedagogicalLogMemos.api.test.ts` sans rapport (domaine cahier de t
 - Pas de merge effectué (règle du projet : jamais de merge par le subagent).
 
 ## Points en suspens
-- Aucune vérification HTTP directe contre la production n'a pu être faite dans cette session (pas
-  d'identifiants disponibles). La forme de `PublicTutorialBlock` en lecture est déduite par
-  analogie avec `ExerciseContentItem` (confirmée en documentation, pas en HTTP réel) — à vérifier
-  au premier test réel en production, notamment le nom exact des champs `imageMimeType`/
-  `imageSizeBytes` sur un bloc de type `image`.
+- **Levé le 2026-09-03** : la forme de `PublicTutorialBlock` a été confirmée par des appels HTTP
+  directs contre la production (voir section « Vérification HTTP réelle » ci-dessus) — conforme,
+  aucun correctif nécessaire.
 - Les 7 fichiers de test pré-existants cassés (voir ci-dessus) restent en l'état — dette
   antérieure, hors périmètre de cette tâche, signalée mais non traitée.
+
+## Note de reprise (2026-09-03)
+
+Cette vérification a été faite depuis une branche locale distincte (`tutorial-front-verify`,
+suivant `origin/feat/tutorial-front-rebuild`) car la branche `feat/tutorial-front-rebuild` était
+déjà extraite (`git worktree`) par un autre agent au moment de la reprise, dans un worktree hors
+d'atteinte de cet agent (`agent-afefd890a8add7f7e`, isolé par le mécanisme de sandboxing). Aucun
+code n'ayant dû être modifié (conformité confirmée), seul ce rapport a été mis à jour et poussé
+directement sur `feat/tutorial-front-rebuild` via cette branche locale temporaire.

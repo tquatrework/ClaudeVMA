@@ -37,6 +37,7 @@
       "Bash(git -C * fetch *)",
       "Bash(git worktree list)",
       "Bash(git worktree list *)",
+      "Bash(grep *)",
       "Bash(npx jest *)",
       "Bash(npm run test)",
       "Bash(npm run test *)",

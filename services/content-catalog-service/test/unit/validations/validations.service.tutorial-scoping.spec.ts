@@ -1,8 +1,10 @@
 /**
  * Unit tests — ValidationsService, scoping AP par relation animator_of_teacher
- * appliqué à ContentType.EXERCISE (arbitrage du 2026-08-29, "Refonte des
- * Exercices", point 5 : "réutilise exactement le mécanisme déjà construit
- * pour le Quizz"). Miroir de validations.service.quiz.spec.ts.
+ * appliqué à ContentType.TUTORIAL (arbitrage du 2026-09-03, "Refonte des
+ * Tutos/Vidéos", point 7 : "réutiliser exactement le mécanisme déjà construit
+ * pour Quizz/Exercice/Évaluation"). Miroir de
+ * validations.service.exercise-scoping.spec.ts. Remplace le comportement
+ * "non scopé" précédemment couvert dans ce même fichier avant cette date.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -16,56 +18,60 @@ import { Tutorial } from '../../../src/tutorials/entities/tutorial.entity';
 import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { ContentType } from '../../../src/common/enums/content-type.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
+import { TutorialFormat } from '../../../src/tutorials/enums/tutorial-format.enum';
 import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const AP_ID = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
 const RP_ID = 'rp00-0000-4000-b000-bbbbbbbbbbbb';
 const FORMATEUR_ID = 'form-0000-4000-c000-cccccccccccc';
-const EXERCISE_ID = 'exer-0000-4000-e000-eeeeeeeeeeee';
+const TUTORIAL_ID = 'tuto-0000-4000-e000-eeeeeeeeeeee';
 
 function buildMockRepo() {
   return { create: jest.fn(), save: jest.fn(), find: jest.fn(), findOne: jest.fn(), findAndCount: jest.fn() };
 }
 
-function buildSampleExercise(overrides: Partial<Exercise> = {}): Exercise {
+function buildSampleTutorial(overrides: Partial<Tutorial> = {}): Tutorial {
   return {
-    id: EXERCISE_ID,
-    title: 'Exercice test',
+    id: TUTORIAL_ID,
+    title: 'Tutoriel test',
     description: null,
+    theme: 'algèbre',
+    tags: [],
     level: 'seconde',
     difficulty: 'moyen',
-    theme: 'algèbre',
     competencies: [],
-    tags: [],
+    format: TutorialFormat.POST,
+    videoUrl: null,
+    linkedQuizId: null,
     authorId: FORMATEUR_ID,
     authorRole: 'formateur',
     status: ContentStatus.PENDING_VALIDATION,
     shareableLink: null,
-    parts: [],
+    blocks: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  } as Exercise;
+  } as Tutorial;
 }
 
-describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
+describe('ValidationsService — scoping AP (ContentType.TUTORIAL)', () => {
   let validationsService: ValidationsService;
   let validationRepo: ReturnType<typeof buildMockRepo>;
-  let exerciseRepo: ReturnType<typeof buildMockRepo>;
+  let tutorialRepo: ReturnType<typeof buildMockRepo>;
   let profileRelationsClient: { hasAnimatorOfTeacherRelation: jest.Mock };
 
   beforeEach(async () => {
     validationRepo = buildMockRepo();
-    exerciseRepo = buildMockRepo();
+    tutorialRepo = buildMockRepo();
     profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         ValidationsService,
         { provide: getRepositoryToken(ContentValidation), useValue: validationRepo },
-        { provide: getRepositoryToken(Exercise), useValue: exerciseRepo },
+        { provide: getRepositoryToken(Exercise), useValue: buildMockRepo() },
         { provide: getRepositoryToken(Evaluation), useValue: buildMockRepo() },
-        { provide: getRepositoryToken(Tutorial), useValue: buildMockRepo() },
+        { provide: getRepositoryToken(Tutorial), useValue: tutorialRepo },
         { provide: getRepositoryToken(Quiz), useValue: buildMockRepo() },
         { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
@@ -76,17 +82,17 @@ describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  it('un AP qui anime le formateur auteur peut valider son exercice', async () => {
-    exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
-    exerciseRepo.save.mockResolvedValue({});
+  it('un AP qui anime le formateur auteur peut valider son tutoriel', async () => {
+    tutorialRepo.findOne.mockResolvedValue(buildSampleTutorial());
+    tutorialRepo.save.mockResolvedValue({});
     profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
-    const savedValidation = { id: 'val-ex-0001', decision: ContentStatus.VALIDATED };
+    const savedValidation = { id: 'val-tuto-0001', decision: ContentStatus.VALIDATED };
     validationRepo.create.mockReturnValue(savedValidation);
     validationRepo.save.mockResolvedValue(savedValidation);
 
     const result = await validationsService.validateContent(
-      EXERCISE_ID,
-      ContentType.EXERCISE,
+      TUTORIAL_ID,
+      ContentType.TUTORIAL,
       { decision: ContentStatus.VALIDATED },
       AP_ID,
       'animateur_pedagogique',
@@ -97,13 +103,13 @@ describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
   });
 
   it("lève ForbiddenException si l'AP n'anime pas le formateur auteur", async () => {
-    exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
+    tutorialRepo.findOne.mockResolvedValue(buildSampleTutorial());
     profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
 
     await expect(
       validationsService.validateContent(
-        EXERCISE_ID,
-        ContentType.EXERCISE,
+        TUTORIAL_ID,
+        ContentType.TUTORIAL,
         { decision: ContentStatus.VALIDATED },
         AP_ID,
         'animateur_pedagogique',
@@ -112,15 +118,15 @@ describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
   });
 
   it('propage une ServiceUnavailableException si profile-service est injoignable', async () => {
-    exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
+    tutorialRepo.findOne.mockResolvedValue(buildSampleTutorial());
     profileRelationsClient.hasAnimatorOfTeacherRelation.mockRejectedValue(
       new ServiceUnavailableException('profile-service injoignable'),
     );
 
     await expect(
       validationsService.validateContent(
-        EXERCISE_ID,
-        ContentType.EXERCISE,
+        TUTORIAL_ID,
+        ContentType.TUTORIAL,
         { decision: ContentStatus.VALIDATED },
         AP_ID,
         'animateur_pedagogique',
@@ -129,16 +135,16 @@ describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
   });
 
   it("un RP valide sans jamais consulter la relation, même sans lien avec l'auteur", async () => {
-    exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
-    exerciseRepo.save.mockResolvedValue({});
-    const savedValidation = { id: 'val-ex-0002', decision: ContentStatus.VALIDATED };
+    tutorialRepo.findOne.mockResolvedValue(buildSampleTutorial());
+    tutorialRepo.save.mockResolvedValue({});
+    const savedValidation = { id: 'val-tuto-0002', decision: ContentStatus.VALIDATED };
     validationRepo.create.mockReturnValue(savedValidation);
     validationRepo.save.mockResolvedValue(savedValidation);
     profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
 
     const result = await validationsService.validateContent(
-      EXERCISE_ID,
-      ContentType.EXERCISE,
+      TUTORIAL_ID,
+      ContentType.TUTORIAL,
       { decision: ContentStatus.VALIDATED },
       RP_ID,
       'responsable_pedagogique',
@@ -147,10 +153,4 @@ describe('ValidationsService — scoping AP (ContentType.EXERCISE)', () => {
     expect(result.decision).toBe(ContentStatus.VALIDATED);
     expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
   });
-
-  // Le scoping AP de ContentType.TUTORIAL est désormais couvert par
-  // validations.service.tutorial-scoping.spec.ts (arbitrage du 2026-09-03,
-  // "Refonte des Tutos/Vidéos", point 7 — étend à Tutorial le mécanisme déjà
-  // en place pour Quizz/Exercice/Évaluation, contrairement à ce que disait
-  // encore ce fichier avant cette date).
 });

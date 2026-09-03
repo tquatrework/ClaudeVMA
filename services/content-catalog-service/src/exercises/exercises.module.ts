@@ -28,6 +28,11 @@ import { ProfileClientModule } from '../common/clients/profile-client.module';
   ],
   controllers: [ExercisesController, InternalExercisesController],
   providers: [ExercisesService, ExerciseImportService, ExerciseImageStorageService, ExerciseImageTranscoder],
-  exports: [ExercisesService],
+  // ExerciseImageStorageService/ExerciseImageTranscoder exportés depuis le
+  // 2026-09-03 : TutorialsModule les réutilise tels quels pour les blocs
+  // image du Tutoriel (arbitrage "Refonte des Tutos/Vidéos", point 4 —
+  // "réutilise le même mécanisme d'image de premier niveau que l'Exercice"),
+  // même volume Docker, même transcodeur, plutôt que d'en écrire un second.
+  exports: [ExercisesService, ExerciseImageStorageService, ExerciseImageTranscoder],
 })
 export class ExercisesModule {}

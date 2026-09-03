@@ -1,18 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, IsNumber, IsEnum, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TutorialType, TutorialFormat } from '../../common/enums/content-type.enum';
+import { TutorialFormat } from '../enums/tutorial-format.enum';
 
 export class SearchTutorialDto {
-  @ApiPropertyOptional({ description: 'Recherche par mot-clé' })
+  @ApiPropertyOptional({ description: 'Recherche par mot-clé dans le titre' })
   @IsOptional()
   @IsString()
   keyword?: string;
-
-  @ApiPropertyOptional({ enum: TutorialType, description: 'Filtrer par type de tutoriel' })
-  @IsOptional()
-  @IsEnum(TutorialType)
-  tutorialType?: TutorialType;
 
   @ApiPropertyOptional({ enum: TutorialFormat, description: 'Filtrer par format' })
   @IsOptional()
@@ -24,6 +19,11 @@ export class SearchTutorialDto {
   @IsString()
   level?: string;
 
+  @ApiPropertyOptional({ description: 'Filtrer par difficulté' })
+  @IsOptional()
+  @IsString()
+  difficulty?: string;
+
   @ApiPropertyOptional({ description: 'Filtrer par thème' })
   @IsOptional()
   @IsString()
@@ -34,6 +34,11 @@ export class SearchTutorialDto {
   @IsString()
   tag?: string;
 
+  @ApiPropertyOptional({ description: 'Filtrer par auteur (id)' })
+  @IsOptional()
+  @IsString()
+  authorId?: string;
+
   @ApiPropertyOptional({ description: 'Page courante', default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -41,7 +46,7 @@ export class SearchTutorialDto {
   @Min(1)
   page?: number;
 
-  @ApiPropertyOptional({ description: 'Nombre d\'éléments par page', default: 20 })
+  @ApiPropertyOptional({ description: "Nombre d'éléments par page", default: 20 })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

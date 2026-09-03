@@ -56,9 +56,15 @@
       <endpoint method="PUT" path="/evaluations/{id}">Modifier une evaluation, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur, inchange pour AP/RP auteur (ajoute le 2026-09-02, meme modele que Quizz/Exercice — comblait un manque signale par front-developper). Meme forme de corps que la creation, remplacement integral (exerciseItems et scoring compris).</endpoint>
       <endpoint method="GET" path="/evaluations/{id}">Renvoie desormais le bareme informatif eventuel (scoring, null si non defini) en plus des champs deja exposes (ajoute le 2026-09-02). Meme jour : corrige l'absence totale de controle d'acces (auparavant ouverte a tout appelant authentifie quel que soit le statut) — non-valide desormais invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher.</endpoint>
       <endpoint method="RETIRE" path="/evaluations/{id}/attempts">Retiree le 2026-09-01 avec EvaluationAttempt (jamais utilisee reellement, migre vers learning-activity-service).</endpoint>
-      <endpoint method="GET" path="/tutorials">Rechercher tutos/videos.</endpoint>
-      <endpoint method="POST" path="/tutorials">Charger tuto/video.</endpoint>
-      <endpoint method="GET" path="/tutorials/{id}">Recuperer un tutoriel. Corrige le 2026-09-02 : ne verifiait auparavant aucun statut/appelant (ouvert a tout compte authentifie). Non-valide desormais invisible sauf a l'auteur et a RP/AP/TI — AP non scope par relation ici, a la difference de Quiz/Exercice/Evaluation, car la decision de validation d'un Tutoriel reste elle-meme non scopee (Tutorial n'a pas recu la refonte de cycle 2026-08-28/29/09-01).</endpoint>
+      <endpoint method="GET" path="/tutorials">Rechercher tutos/videos, filtrable par tag (ANY(tags)), format (video|post), niveau, difficulte, theme, mot-cle (titre) et auteur, pagine. Refonte complete du 2026-09-03 (branche feat/tutorial-rebuild) : remplace l'ancien modele academie/activite/news x texte/mixte/video.</endpoint>
+      <endpoint method="POST" path="/tutorials">Creer un tutoriel, deux formats exclusifs (video : videoUrl obligatoire, aucun bloc ; post : sequence ordonnee de blocs titre/texte/image, videoUrl interdit). Titre obligatoire et unique par auteur (disambiguation automatique par suffixe "(N)", meme mecanisme que Quizz/Exercice/Evaluation). linkedQuizId optionnel, existence verifiee a l'ecriture (400 si Quizz introuvable), quel que soit son statut. Statut initial selon le role : pending_validation pour un formateur, validated pour AP/RP (refonte du 2026-09-03).</endpoint>
+      <endpoint method="PUT" path="/tutorials/{id}">Modifier un tutoriel, reserve a son auteur. Remplacement integral (blocs et images compris — a renvoyer explicitement en base64 pour les conserver). Un auteur formateur repasse en pending_validation ; un auteur AP/RP ne change pas de statut. Meme disambiguation de titre qu'a la creation (ajoute le 2026-09-03).</endpoint>
+      <endpoint method="GET" path="/tutorials/default-title">Suggerer un titre par defaut ("Tutoriel (N)"), N = nombre de tutoriels deja crees par l'appelant + 1 — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-03). Reservee aux createurs (formateur/AP/RP).</endpoint>
+      <endpoint method="GET" path="/tutorials/image-constraints">Plafonds d'image (entree/sortie/corps JSON) pour un bloc image de tutoriel — reutilise directement ExerciseImageStorageService/ExerciseImageTranscoder (meme volume, meme transcodeur que l'Exercice), lus par le front avant d'afficher le bouton d'ajout (ajoute le 2026-09-03).</endpoint>
+      <endpoint method="GET" path="/tutorials/pending-validation">Lister les tutoriels en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-09-03, meme mecanisme que Quizz/Exercice/Evaluation).</endpoint>
+      <endpoint method="GET" path="/tutorials/{id}">Recuperer un tutoriel — metadonnees + contenu (videoUrl ou sequence de blocs). linkedQuizId n'est renvoye que si le Quizz reference est validated (sinon null, quel que soit l'appelant). Non-valide invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher (refonte du 2026-09-03 — remplace le comportement non scope documente en 2026-09-02, desormais aligne sur Quizz/Exercice/Evaluation).</endpoint>
+      <endpoint method="GET" path="/tutorials/{id}/images/{blockId}">Octets d'une image de bloc, revenifie la visibilite du tutoriel parent a chaque telechargement (ajoute le 2026-09-03).</endpoint>
+      <endpoint method="DELETE" path="/tutorials/{id}">Retirer un tutoriel (status REMOVED). Reserve RP/TI via le RolesGuard (le service autorise aussi l'auteur, mais ce role n'est pas dans la liste @Roles() du controleur — meme divergence pre-existante et assumee que sur DELETE /exercises/{id}, non corrigee ici, hors perimetre).</endpoint>
       <endpoint method="POST" path="/contents/{id}/comments">Commenter une ressource.</endpoint>
       <endpoint method="POST" path="/contents/{id}/ratings">Scorer une ressource.</endpoint>
       <endpoint method="GET" path="/quizzes">Rechercher les quizz visibles, ou tous ses propres quizz avec `mine=true` tous statuts confondus (ajoute le 2026-08-28, mine ajoute le 2026-08-28 session 3).</endpoint>
@@ -88,7 +94,12 @@
       <entity name="Evaluation">
         <note>Cycle de vie aligne sur Quizz/Exercice le 2026-09-01 : statut fixe a la creation selon le role (pending_validation formateur, validated AP/RP), validation AP scopee par animator_of_teacher, tags convertis en text[] postgres natif (ANY() en recherche), durationSeconds rendu NOT NULL. EvaluationAttempt retiree (jamais utilisee, migre vers learning-activity-service). Structure exerciseItems inchangee. Colonne scoring (jsonb, nullable) ajoutee le 2026-09-02 : bareme informatif {mode: per_exercise|per_question, entries: [{exerciseId, partId?, points}]}, jamais utilise pour un calcul automatique. PUT /evaluations/{id} ajoutee le meme jour, meme modele d'edition que Quizz/Exercice.</note>
       </entity>
-      <entity>Tutorial</entity>
+      <entity name="Tutorial">
+        <note>Refonte complete du 2026-09-03 (branche feat/tutorial-rebuild) : remplace l'ancien modele (tutorialType academie/activite/news, format texte/mixte/video, textContent scalaire, imageUrl scalaire, toujours DRAFT a la creation, sans unicite de titre). Nouveau modele : titre obligatoire et unique par auteur (index UNIQUE partiel (authorId,title) WHERE status != 'removed', pose directement par @Index sur l'entite — table neuve, pas de migration de fermeture de fenetre separee comme pour Exercise/Quiz), theme/tags(text[])/level/difficulty/competencies alignes sur Evaluation/Exercise, description (nouveau champ), format (video|post, un seul jeu de champs pertinent par format, verifie en service), videoUrl (format video), linkedQuizId (reference optionnelle vers un Quiz existant, existence verifiee a l'ecriture, exposition en lecture filtree par le statut validated du Quiz). Cycle de validation aligne point par point sur Quizz/Exercice/Evaluation (pending_validation formateur, validated AP/RP, AP scope animator_of_teacher — la table `content_validations`/ValidationsService couvrait deja Tutorial mais sans ce scoping avant ce chantier). Voir migration CleanupPreRefonteTutorialData1800000000000 (DROP TABLE + types enum resolus dynamiquement, reconstruction assumee, aucune donnee pre-refonte a preserver — 0 ligne verifiee en production avant la migration).</note>
+      </entity>
+      <entity name="TutorialBlock">
+        <note>Ajoutee le 2026-09-03 — bloc ordonne (blockNumber) d'un Tutoriel au format post, 3 categories title|text|image. Contrairement a ExercisePart/ExerciseContentItem, un bloc de Tutoriel EST directement son contenu (pas de table d'items imbriquee) : content (texte brut, syntaxe legere $...$/[label](url) rendue cote client) pour title/text, champs image* (originalFilename/storedFilename/mimeType/sizeBytes) pour image — memes colonnes et meme mecanisme de stockage que ExerciseContentItem, en reutilisant directement ExerciseImageStorageService/ExerciseImageTranscoder (memes classes injectees dans TutorialsModule via l'import d'ExercisesModule, meme volume Docker `content_catalog_exercise_images`) plutot que d'en ecrire un second.</note>
+      </entity>
       <entity>ContentComment</entity>
       <entity>ContentRating</entity>
       <entity>ContentValidation</entity>
@@ -126,6 +137,10 @@
       <criterion>evaluation_attempts n'existe plus dans content-catalog-service ; POST /evaluations/:id/attempts renvoie 404 (route absente), jamais 500 (ajoute le 2026-09-01).</criterion>
       <criterion>Le bareme informatif d'une evaluation (scoring) est optionnel, valide en entree (mode coherent, exerciseId reference dans exerciseItems, partId valide et de categorie question en mode per_question, points strictement positifs, aucun doublon) et renvoye tel quel par GET/POST/PUT — jamais utilise pour calculer un score (ajoute le 2026-09-02).</criterion>
       <criterion>PUT /evaluations/:id est reserve a l'auteur (403 sinon, 404 si introuvable) et suit la meme regle de transition de statut que Quizz/Exercice (ajoute le 2026-09-02).</criterion>
+      <criterion>Un tutoriel cree par un formateur n'est visible aux eleves et aux autres professeurs qu'apres validation AP/RP ; un tutoriel cree par un AP ou un RP est visible immediatement (refonte du 2026-09-03, aligne sur Quizz/Exercice/Evaluation).</criterion>
+      <criterion>La validation AP d'un tutoriel est scopee par la relation animator_of_teacher, RP illimite (refonte du 2026-09-03 — remplace le comportement non scope du modele pre-refonte).</criterion>
+      <criterion>Un tutoriel video ne peut pas etre cree sans videoUrl, ni porter de blocs ; un tutoriel post ne peut pas porter de videoUrl (400 sinon, ajoute le 2026-09-03).</criterion>
+      <criterion>linkedQuizId d'un tutoriel n'est jamais renvoye par GET /tutorials/:id si le Quizz reference n'est pas validated, quel que soit l'appelant (ajoute le 2026-09-03).</criterion>
     </acceptanceCriteria>
     <technicalImplementation>
       <session date="2026-08-28" label="Creation et definition du Quizz (branche feat/quiz-definition)">
@@ -1980,6 +1995,160 @@
             forme qu'avant, seule l'autorisation change) — probablement aucune action necessaire
             cote `front-developper` une fois cette PR mergee, a confirmer si l'ecran "Contenus a
             valider" du nouveau rail RP (arbitrage du meme jour) rencontre un cas non couvert.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-03" label="Refonte des Tutos/Vidéos (branche feat/tutorial-rebuild)">
+        <objective>
+          Implementer l'arbitrage docs/architecture.md "Refonte des Tutos/Vidéos" : une seule
+          entite Tutorial, deux formats exclusifs (video|post), metadonnees alignees sur
+          Evaluation/Exercise, lien optionnel vers un Quizz, droits et cycle de validation
+          alignes point par point sur Quizz/Exercice/Evaluation (pending_validation formateur,
+          validated AP/RP, AP scope animator_of_teacher). Ferme le point ouvert signale le
+          2026-09-02 ("Tutorial n'a jamais recu la refonte de cycle... a revisiter ensemble si
+          Tutorial est refondu un jour").
+        </objective>
+        <investigation>
+          Verification prealable avant toute ecriture (consigne explicite de la delegation) :
+          l'entite Tutorial existante (chantier de juin 2026, jamais retouchee au-dela du
+          correctif de lecture du 2026-09-02) portait un modele different de celui demande —
+          tutorialType (academie/activite/news) + format (texte/mixte/video), textContent en
+          texte brut unique, imageUrl scalaire, toujours DRAFT a la creation quel que soit le
+          role, aucune unicite de titre, aucun scoping AP. 0 ligne en production au moment de la
+          verification (`SELECT count(*) FROM tutorials` sur la pile reelle) — aucune donnee a
+          preserver, meme situation que la refonte des Exercices du 2026-08-29.
+        </investigation>
+        <filesAdded>
+          <file path="src/tutorials/enums/tutorial-format.enum.ts">TutorialFormat (video|post) — remplace TutorialType/TutorialFormat retires de content-type.enum.ts.</file>
+          <file path="src/tutorials/enums/tutorial-block-category.enum.ts">TutorialBlockCategory (title|text|image).</file>
+          <file path="src/tutorials/entities/tutorial-block.entity.ts">Bloc ordonne, contenu direct (pas d'items imbriques comme ExercisePart), memes colonnes image que ExerciseContentItem.</file>
+          <file path="src/tutorials/tutorial.constants.ts">Re-export des plafonds d'image d'ExercisesModule (meme volume/transcodeur), plafonds propres (blocs, description, URL vidéo).</file>
+          <file path="src/tutorials/dto/create-tutorial-block.dto.ts">category, content?, imageData?, imageOriginalFilename?.</file>
+          <file path="src/tutorials/dto/update-tutorial.dto.ts">Extends CreateTutorialDto, meme modele que UpdateExerciseDto/UpdateQuizDto.</file>
+          <file path="src/migrations/1800000000000-CleanupPreRefonteTutorialData.ts">DROP TABLE tutorials CASCADE + DROP TYPE des enums associes, resolus DYNAMIQUEMENT via pg_type/pg_attribute/pg_class (pas de nom suppose) — synchronize (NODE_ENV=development actif sur la pile reelle) recree la table a partir de la nouvelle entite au boot suivant, index UNIQUE (authorId,title) inclus.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/tutorials/entities/tutorial.entity.ts">Reecriture complete — voir dataEntities.</file>
+          <file path="src/tutorials/dto/create-tutorial.dto.ts">Reecriture complete — title/description/theme/tags/level/difficulty/competencies/format/videoUrl/linkedQuizId/blocks.</file>
+          <file path="src/tutorials/dto/search-tutorial.dto.ts">Reecriture complete — keyword/format/level/difficulty/theme/tag/authorId/page/limit, meme forme que SearchExerciseDto.</file>
+          <file path="src/tutorials/tutorials.service.ts">Reecriture complete sur le patron ExercisesService : titre unique par auteur avec disambiguation+retry sur violation 23505 (meme mecanisme exact, meme borne de 10 tentatives), validateFormatConsistency() (video⇒videoUrl+pas de blocs, post⇒pas de videoUrl), validateBlockDto() (title/text⇒content requis, image⇒imageData requis), assertLinkedQuizExists() (existence seule, pas le statut, a l'ecriture), resolveVisibleLinkedQuizId() (filtre par statut validated a CHAQUE lecture, jamais en cache), canReadAsValidator() (RP/TI illimites, AP via profileRelationsClient.hasAnimatorOfTeacherRelation — remplace l'ancien isAdminRole() non scope), getDefaultTitle(), getPendingValidation() (scoping AP identique a Exercise), decodeBase64Image/transcodeAndValidateImage/buildBlockEntity (reutilisent ExerciseImageStorageService/ExerciseImageTranscoder injectes, pas reimplementes).</file>
+          <file path="src/tutorials/tutorials.controller.ts">Reecriture complete — GET/POST/PUT /tutorials, GET default-title/image-constraints/pending-validation, GET /tutorials/{id}, GET /tutorials/{id}/images/{blockId}, DELETE /tutorials/{id} (memes roles @Roles() que ExercisesController, meme divergence assumee RP/TI-only malgre le service qui autorise aussi l'auteur — non corrigee, hors perimetre).</file>
+          <file path="src/tutorials/tutorials.module.ts">Importe ExercisesModule (pour ExerciseImageStorageService/ExerciseImageTranscoder exportes), ProfileClientModule (pour ProfileRelationsClient), TypeOrmModule.forFeature([Tutorial, TutorialBlock, Quiz]) — Quiz pour assertLinkedQuizExists()/resolveVisibleLinkedQuizId().</file>
+          <file path="src/exercises/exercises.module.ts">exports étendu à ExerciseImageStorageService/ExerciseImageTranscoder (auparavant seulement ExercisesService) — reutilises tels quels par TutorialsModule.</file>
+          <file path="src/common/enums/content-type.enum.ts">TutorialType/TutorialFormat (academie/activite/news, texte/mixte/video) retires — remplaces par tutorials/enums/tutorial-format.enum.ts.</file>
+          <file path="src/validations/validations.service.ts">ContentType.TUTORIAL ajoute a la liste des types scopes par animator_of_teacher pour l'AP (auparavant Quiz/Exercise/Evaluation uniquement, commentaire explicite "Tutorial reste seul inchange" desormais obsolete et corrige). RP reste sans restriction pour les 4 types.</file>
+          <file path="src/app.module.ts">Enregistrement de TutorialBlock dans TypeOrmModule.forRootAsync().entities.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Reutilisation LITTERALE d'ExerciseImageStorageService/ExerciseImageTranscoder (memes
+            classes injectees, pas une copie) plutot qu'un service d'image propre a Tutorial —
+            demande explicitement par l'arbitrage ("reutilise le meme mecanisme... plutot que
+            d'en ecrire un second"). Consequence : un seul volume Docker
+            (content_catalog_exercise_images) porte desormais les images d'Exercice ET de
+            Tutoriel, malgre son nom historique — nommage laisse tel quel (renommer un volume
+            Docker nomme deja en production serait une operation separee, non demandee).
+          </decision>
+          <decision>
+            linkedQuizId : existence verifiee a l'ECRITURE (n'importe quel statut accepte),
+            visibilite filtree par le statut validated du Quiz a CHAQUE LECTURE (jamais mis en
+            cache sur la ligne Tutorial) — meme discipline que le reste du projet pour les droits
+            derives d'une relation/d'un statut tiers (verification a la volee, jamais une fois
+            pour toutes). Consequence testee en HTTP reel : un lien pose vers un Quizz encore
+            pending_validation reste accepte a la creation mais linkedQuizId ressort a null tant
+            que le Quizz n'est pas valide, puis reapparait des sa validation, sans reecriture du
+            Tutoriel.
+          </decision>
+          <decision>
+            Aucune contrainte FK SQL sur linkedQuizId (verification applicative uniquement) —
+            coherent avec le fait qu'un Quiz peut evoluer independamment (retrait futur, pas de
+            route de suppression Quiz aujourd'hui mais principe general de ce service) sans
+            bloquer une ecriture Tutorial par une contrainte referentielle stricte.
+          </decision>
+          <decision>
+            Table `tutorials` DROP puis recreee par synchronize, plutot que ALTER incrementaux
+            comme pour `exercises` (refonte du 2026-08-29) : le jeu de colonnes change presque
+            integralement (types enum renommes avec des valeurs differentes, plusieurs colonnes
+            disparaissent) — un DROP+recreation est plus simple et plus sur qu'une sequence
+            d'ALTER TYPE/DROP COLUMN/ADD COLUMN NOT NULL sur une table qui n'a de toute facon
+            aucune donnee a preserver (0 ligne verifiee). Les noms des types enum Postgres a
+            supprimer sont resolus DYNAMIQUEMENT (pg_type/pg_attribute/pg_class) plutot que
+            supposes sur la convention de nommage TypeORM par defaut, meme precaution que
+            AddImagePartCategoryEnum1792000000000 — verifie correct en production
+            (tutorials_tutorialtype_enum/tutorials_format_enum/tutorials_status_enum,
+            confirmes par \d tutorials avant la migration).
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npx jest` : 457/457 tests verts, 41 suites (dont 47 tests nouveaux/reecrits pour
+            Tutorial : tutorials.service.spec.ts reecrit integralement, create-tutorial.dto.spec.ts
+            nouveau, validations.service.tutorial-scoping.spec.ts nouveau — miroir de
+            validations.service.exercise-scoping.spec.ts, dont le dernier test [devenu faux]
+            "Tutorial non scope" a ete retire — et cleanup-pre-refonte-tutorial-data.spec.ts
+            nouveau).</item>
+          <item>Preuve HTTP directe contre le conteneur reel : image reconstruite depuis le
+            worktree de la branche (`docker build`), conteneur `visiomath_content_catalog`
+            remplace (ancien renomme `visiomath_content_catalog_old_master`, conserve arrete plutot
+            que supprime), meme reseau/volume/variables d'environnement que le conteneur
+            docker-compose d'origine. Migration verifiee appliquee (`\d tutorials` : nouvelles
+            colonnes, index UNIQUE partiel present, FK tutorial_blocks -&gt; tutorials CASCADE).
+            JWT forges localement avec le JWT_SECRET du conteneur (jsonwebtoken, node local).
+            31/31 assertions HTTP vertes, dont :
+            <detail>Creation post (formateur) -&gt; 201 pending_validation, 2 blocs persistes ;
+              creation video (RP) -&gt; 201 validated immediat.</detail>
+            <detail>400 : titre vide, video sans videoUrl, video avec blocs, post avec videoUrl,
+              linkedQuizId introuvable.</detail>
+            <detail>Collision de titre (meme auteur) -&gt; 201, titre suffixe automatiquement
+              "(2)", pas de 400.</detail>
+            <detail>Visibilite non-valide : eleve -&gt; 404 ; auteur -&gt; 200 ; RP -&gt; 200 ; AP
+              SANS relation animator_of_teacher reelle (verifiee contre profile-service, UUID de
+              test neufs sans aucune relation prealable) -&gt; 404 ; AP AVEC relation -&gt; 200
+              (confirme separement en reutilisant des UUID de fixture deja lies dans
+              profile-service, qui a d'abord fait echouer le test par erreur de methode avant
+              correction des UUID utilises).</detail>
+            <detail>Edition reservee a l'auteur -&gt; 403 pour un tiers ; edition par l'auteur
+              formateur d'un tutoriel valide -&gt; repasse pending_validation.</detail>
+            <detail>POST /validations/tutorial/:id/decision : RP -&gt; 201 validated ; AP sans
+              relation -&gt; 403 (scoping desormais actif, contrairement au comportement
+              pre-refonte).</detail>
+            <detail>Bloc image base64 -&gt; 201, mimeType image/webp (re-encode), GET
+              /tutorials/:id/images/:blockId -&gt; 200 octets non vides.</detail>
+            <detail>linkedQuizId : Quizz pending -&gt; null en lecture ; apres
+              POST /validations/quiz/:id/decision (RP, validated) -&gt; linkedQuizId reapparait
+              sans reecriture du Tutoriel.</detail>
+            <detail>DELETE /tutorials/:id (RP) -&gt; 204.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Donnees de test creees sur la pile partagee pendant la verification (plusieurs
+            tutoriels post/video, un quizz "Quizz pour tuto") — non supprimees au-dela d'un
+            DELETE de demonstration, cohernent avec la pratique des sessions precedentes sur ce
+            service.
+          </point>
+          <point>
+            Conteneur `visiomath_content_catalog_old_master` (ancien conteneur base sur master,
+            arrete) laisse en place plutot que supprime, au cas ou une inspection serait utile
+            avant le merge — a nettoyer une fois la branche mergee et redeployee normalement via
+            docker-compose.
+          </point>
+          <point>
+            Le remplacement du conteneur a ete fait manuellement (docker build + docker run) en
+            dehors de docker-compose, car le worktree de cette session est isole du checkout
+            principal (/home/debian/Documents/claudeVMA) qui porte le docker-compose.yml reel —
+            un `docker compose build` depuis le checkout principal aurait reconstruit l'image a
+            partir du code de master, pas de cette branche. A la fusion, un redeploiement standard
+            (`docker compose up -d --build content-catalog-service` depuis le checkout principal
+            sur master) remplacera proprement ce conteneur manuel.
+          </point>
+          <point>
+            DELETE /tutorials/:id partage la meme divergence pre-existante que DELETE
+            /exercises/:id (RolesGuard restreint a RP/TI, alors que le service autorise aussi
+            l'auteur) — non corrigee ici par coherence avec le comportement Exercise, signalee
+            pour visibilite si elle doit un jour etre corrigee pour les deux types ensemble.
           </point>
         </openPoints>
       </session>

@@ -2925,9 +2925,9 @@ Body : `{siteName?, maintenanceMessage?, isMaintenanceMode?, contactEmail?, supp
 
 Swagger complet exposé sur `/api/docs` (routes publiques uniquement — les routes `/internal/*`
 sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre les routes Quizz
-(2026-08-28), Exercices (2026-08-29) et Évaluations (2026-09-01) ; voir
-`docs/services/content-catalog-service.md` pour le reste du catalogue (tutoriels, validations
-génériques).
+(2026-08-28), Exercices (2026-08-29), Évaluations (2026-09-01) et Tutoriels (2026-09-03) ; voir
+`docs/services/content-catalog-service.md` pour l'historique détaillé des chantiers et le contrat
+générique de validation (`POST /validations/:type/:id/*`, partagé par les 4 types de contenu).
 
 ### Quizz
 
@@ -3252,6 +3252,50 @@ plus bas dans ce fichier) : l'ajout de `scoring` est **purement additif**, aucun
 n'est retiré ni renommé — `learning-activity-service` ne valide strictement que `durationSeconds`
 et `exerciseItems`, un champ supplémentaire ignoré ne casse rien. Non re-testé contre ce service
 dans ce chantier (hors périmètre de la tâche), signalé ici par précaution.
+
+### Tutoriels — refonte du 2026-09-03
+
+Conforme à `docs/architecture.md`, "Refonte des Tutos/Vidéos" : remplace intégralement l'ancien
+modèle du chantier de juin 2026 (`tutorialType` académie/activité/news, `format` texte/mixte/vidéo,
+`textContent` scalaire, toujours `DRAFT` à la création, aucune unicité de titre, aucun scoping AP —
+0 ligne en base au moment de la refonte, migration `CleanupPreRefonteTutorialData1800000000000`).
+Une seule entité `Tutorial`, deux formats exclusifs : **`video`** (`videoUrl` obligatoire, aucun
+bloc) et **`post`** (séquence ordonnée de blocs `title`/`text`/`image`, `videoUrl` interdit).
+Métadonnées alignées sur `Evaluation`/`Exercise` (`theme`, `tags`, `level`, `difficulty`,
+`competencies`), `description` étant nouveau pour ce type de contenu. Droits et cycle de validation
+alignés point par point sur Quizz/Exercice/Évaluation : créateurs formateur/AP/RP, statut fixé au
+rôle à la création (`pending_validation` formateur, `validated` AP/RP), édition réservée à l'auteur
+(un formateur qui édite un tutoriel `validated` le fait repasser en `pending_validation`), validation
+via le flux générique `POST /validations/tutorial/:id/decision` avec AP **désormais scopé** par la
+relation `animator_of_teacher` (jusqu'ici seul type de contenu du flux générique resté non scopé,
+corrigé par cette refonte). Un bloc `image` réutilise **littéralement** le même mécanisme que
+l'Exercice (`ExerciseImageStorageService`/`ExerciseImageTranscoder` injectés tels quels dans
+`TutorialsModule`, même volume Docker `content_catalog_exercise_images`, même ré-encodage WebP) —
+aucun second service d'image écrit pour ce chantier.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /tutorials | Rechercher les tutoriels visibles par l'appelant, filtrables par `format`, `level`, `difficulty`, `theme`, `tag` (`ANY(tags)`), `keyword` (titre), `authorId`, paginés. Un tutoriel non validé reste invisible sauf à son auteur, au RP (illimité) et à l'AP (scopé `animator_of_teacher`) | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
+| POST | /tutorials | Créer un tutoriel. `400` si le titre est vide, si `format=video` sans `videoUrl` ou avec des `blocks`, si `format=post` avec `videoUrl`, si un bloc `title`/`text` est sans `content`, si un bloc `image` est sans `imageData`, ou si `linkedQuizId` ne correspond à aucun Quizz existant (n'importe quel statut accepté à l'écriture). **Collision de titre avec un autre tutoriel du même auteur** : disambiguation automatique par suffixe `"(N)"` (jamais de `400`), fermée par un index UNIQUE `(authorId, title)` + retry borné (10 tentatives, `409` si épuisé) — même mécanisme exact que Quizz/Exercice/Évaluation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicTutorialDetail` · `400` · `403` · `409` |
+| PUT | /tutorials/:id | Modifier un tutoriel, réservé à son auteur. Remplacement intégral (blocs et images compris — à renvoyer explicitement en base64 pour les conserver). Mêmes règles de validation et de disambiguation de titre qu'à la création (le tutoriel édité est exclu de son propre contrôle d'unicité) | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `200 PublicTutorialDetail` · `400` · `403` · `404` · `409` |
+| GET | /tutorials/default-title | Suggère un titre par défaut (`"Tutoriel (N)"`), `N` = nombre de tutoriels déjà créés par l'appelant + 1 — à lire par le front à l'ouverture du formulaire de création | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {title}` — ex. `{"title":"Tutoriel (2)"}` · `401` |
+| GET | /tutorials/image-constraints | Plafonds applicables à un bloc image (entrée/sortie/corps JSON) — mêmes valeurs que `GET /exercises/image-constraints`, mêmes classes de stockage/transcodage réutilisées | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {maxImageInputBytes, maxImageOutputBytes, maxRequestBodyBytes}` · `401` |
+| GET | /tutorials/pending-validation | Lister les tutoriels créés par un professeur en attente de validation. Un AP ne voit que les tutoriels des formateurs qu'il anime ; un RP voit tout | 🔒 | animateur_pedagogique, responsable_pedagogique | `200 {items, total}` · `403` |
+| GET | /tutorials/:id | Récupérer un tutoriel — métadonnées + contenu (`videoUrl` ou séquence de `blocks`). `linkedQuizId` n'est renvoyé (non `null`) que si le Quizz référencé est `validated` **au moment de la lecture** (jamais mis en cache) — évite un lien mort vers un contenu que l'appelant n'a pas le droit de voir. `404` (jamais `403`) si non trouvé ou non visible pour l'appelant | 🔒 | tous rôles authentifiés | `200 PublicTutorialDetail` · `404` |
+| GET | /tutorials/:id/images/:blockId | Télécharger les octets d'un bloc image — revérifie la visibilité du tutoriel parent à chaque téléchargement | 🔒 | tous rôles authentifiés | `200` octets · `404` |
+| DELETE | /tutorials/:id | Marque le tutoriel comme retiré (`REMOVED`). **Le `RolesGuard` du contrôleur ne liste que RP/TI** (même divergence assumée et non corrigée que `DELETE /exercises/:id` : le service autorise aussi l'auteur, mais ce rôle n'atteint jamais cette branche via la route publique) | 🔒 | responsable_pedagogique, technicien_informatique | `204` · `403` · `404` |
+| POST | /validations/tutorial/:id/decision | Réutilise le flux de validation générique. **AP scopé par la relation `animator_of_teacher` depuis le 2026-09-03** (extension du mécanisme déjà en place pour Quizz/Exercice/Évaluation — Tutorial était le dernier type de contenu du flux générique resté non scopé). RP reste sans restriction | 🔒 | animateur_pedagogique, responsable_pedagogique | `201 ContentValidation` · `400` commentaire manquant en cas de rejet · `403` AP non lié au formateur auteur · `404` |
+| POST | /validations/tutorial/:id/request | Réutilise le flux générique de soumission à validation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `204` · `403` · `404` |
+
+Body `POST`/`PUT /tutorials` : `{title, description?, theme?, tags?: string[], level?, difficulty?,
+competencies?: string[], format: "video"|"post", videoUrl?, linkedQuizId?,
+blocks?: [{category: "title"|"text"|"image", content?, imageData?, imageOriginalFilename?}]}`.
+`content` porte la syntaxe légère déjà en place ailleurs dans le projet ($...$/$$...$$ pour une
+formule KaTeX, `[label](url)` pour un lien) — texte brut stocké tel quel côté serveur, transformé au
+rendu côté client uniquement, aucune validation serveur ne rejette les caractères `$`/`\`.
+
+**Pas d'import CSV/Excel pour ce type de contenu** (contrairement à Quizz/Exercice) — non demandé
+par l'arbitrage, pas construit par anticipation.
 
 ## learning-activity-service
 

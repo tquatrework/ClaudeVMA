@@ -20,7 +20,7 @@ import { Tutorial } from '../../../src/tutorials/entities/tutorial.entity';
 import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { ContentType } from '../../../src/common/enums/content-type.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
-import { TutorialType, TutorialFormat } from '../../../src/common/enums/content-type.enum';
+import { TutorialFormat } from '../../../src/tutorials/enums/tutorial-format.enum';
 import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const AP_ID        = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
@@ -91,24 +91,23 @@ function buildSampleTutorial(overrides = {}): Tutorial {
     id: TUTORIAL_ID,
     title: 'Tutoriel test',
     description: null,
-    tutorialType: TutorialType.ACADEMIE,
-    format: TutorialFormat.TEXTE,
-    level: 'seconde',
     theme: 'algèbre',
-    imageUrl: null,
-    videoUrl: null,
-    textContent: 'Contenu...',
     tags: [],
-    relatedResourceIds: [],
-    relatedEvaluationId: null,
+    level: 'seconde',
+    difficulty: 'moyen',
+    competencies: [],
+    format: TutorialFormat.POST,
+    videoUrl: null,
+    linkedQuizId: null,
     authorId: FORMATEUR_ID,
     authorRole: 'formateur',
     status: ContentStatus.PENDING_VALIDATION,
     shareableLink: null,
+    blocks: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  };
+  } as Tutorial;
 }
 
 describe('ValidationsService — règles métier complémentaires', () => {

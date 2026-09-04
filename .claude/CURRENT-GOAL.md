@@ -112,11 +112,21 @@ sonde insérée directement dans `domain_events` est apparue sur le flux Redis `
 en ~4 secondes (balayage du `EventPublisherService` confirmé actif), `published_at` renseigné en
 base — la mécanique complète outbox→Redis fonctionne réellement, pas seulement en test unitaire.
 
-**Reste à faire** : petit correctif côté `communication-service`
-(`IdentityAccessClient`/résultat de recherche par identifiant exact) pour ne pas afficher un
-identifiant manquant en confirmation avant envoi d'une demande de contact (conséquence du point 3
-ci-dessus). Puis `dashboard-notification-service` (nouveaux types d'événements Contacts) et
-`front-developper` (écrans) restent à déléguer.
+**Correctif `communication-service` livré (PR #262, mergée, déployée).**
+`IdentityAccessClient`/`ContactRequestService.searchByLoginIdentifier` lisaient
+`response.loginIdentifier` (toujours `undefined` en réalité) au lieu de réutiliser l'identifiant
+déjà fourni par l'appelant ; corrigé, mock e2e aligné sur le contrat réel `{userId, role}`, 83/83
+tests verts. Redéployé depuis `master`, démarrage propre, routes `/contacts/*` toujours mappées.
+Non revérifié par un appel HTTP authentifié complet (nécessiterait un compte de test avec mot de
+passe connu, non trivial à obtenir depuis l'orchestrateur) — preuve retenue : tests e2e alignés
+sur le contrat réel + redéploiement propre, cohérent avec le niveau de preuve déjà accepté sur ce
+projet pour des correctifs internes sans changement de contrat visible.
+
+Les trois blocages du chantier Contacts sont maintenant tous levés. **Reste à déléguer** :
+`dashboard-notification-service` (nouveaux types d'événements Contacts —
+`ContactRequestCreated`/`Accepted`/`Declined`, déjà émis par `communication-service`) puis
+`front-developper` (écrans : recherche, demandes en attente, boutons accepter/refuser,
+messagerie — l'entrée de menu « Contacts » existe déjà).
 
 ---
 

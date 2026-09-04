@@ -7,6 +7,33 @@
 
 ## Besoin courant
 
+Contacts et Messagerie, demandé le 2026-09-04. Toute personne peut demander n'importe qui en
+contact (par identifiant de connexion exact, ou par prénom/nom avec désambiguïsation par
+identifiant en cas d'homonymes) ; l'autre partie doit explicitement accepter ou refuser (jamais
+d'acceptation automatique) ; les deux actes notifient. Le contact est toujours bidirectionnel.
+Certains contacts sont créés automatiquement, sans demande (AP↔formateurs animés,
+élève↔parents financeurs, élève↔formateurs liés, parent↔formateurs de ses élèves). Avoir un
+contact actif conditionne la messagerie et une partie des notifications d'activité (liste à
+venir plus tard). Rupture d'un contact : geste volontaire d'une des deux parties, jamais
+automatique même quand la relation métier sous-jacente prend fin ; non destructif. Refus d'une
+demande : blocage d'un mois pour la même paire dirigée, définitif au 3ᵉ refus cumulé — mais
+n'empêche jamais la personne qui a refusé d'initier à son tour une demande dans l'autre sens.
+Arbitrage complet persisté dans `docs/architecture/contacts-messagerie.md` (nouveau fichier,
+référencé depuis `overview.md` et importé dans `CLAUDE.md`).
+
+Séquencement : `communication-service` d'abord (modèle Contact + demandes + journal de refus +
+messagerie conditionnée), en coordination avec `profile-service` (événements de relation
+manquants pour l'auto-création par défaut) et `identity-access-service` (recherche par
+identifiant/nom, composite entre les deux services) ; `dashboard-notification-service` ensuite
+(nouveaux types d'événements) ; `front-developper` en dernier, une fois les contrats stabilisés
+— l'entrée de menu « Contacts » existe déjà (fusionnée avec « Messages » le 2026-09-04), ce
+chantier construit ce qu'il y a derrière.
+
+Pas encore délégué — arbitrage tout juste figé, docs à committer/pousser avant toute
+délégation.
+
+---
+
 Afficher l'auteur de chaque commentaire dans un sujet de forum, demandé le 2026-09-04. Aucun UUID
 à afficher (règle du projet) : `community-path-service` doit résoudre `authorId` en prénom/nom
 auprès de `profile-service`, même mécanisme déjà utilisé par plusieurs autres services

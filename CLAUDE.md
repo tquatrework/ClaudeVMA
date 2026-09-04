@@ -68,6 +68,7 @@ Toute contradiction détectée pendant le codage doit être remontée AVANT impl
 @docs/architecture/cahier-texte-notifications-carnet.md
 @docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md
 @docs/architecture/rail-rp-et-points-ouverts.md
+@docs/architecture/contacts-messagerie.md
 
 ### Aspects Front.
 Les règles relatives au développement du Front End sont hébergés par l'agent Front-developper, via le fichier 

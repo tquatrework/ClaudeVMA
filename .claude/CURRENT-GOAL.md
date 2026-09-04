@@ -80,6 +80,18 @@ volontairement non traités (l'utilisateur a choisi d'avancer sans trancher chaq
 3. Le bypass "accès illimité à tout forum" reste ouvert à RP+AF+TI (décision de l'agent backend),
    au lieu du RP seul explicitement garanti par l'arbitrage — non confirmé par l'utilisateur.
 
+**Réponses de l'utilisateur reçues le 2026-09-04, sur ces trois points** : (3) confirmé tel quel,
+RP+AF+TI — plus un point ouvert. (2) reconnu comme sciemment non traité, rien à construire tant que
+le texte réel n'est pas fourni. (1) pas une demande d'édition complète — nouveau besoin plus
+restreint : **le RP doit pouvoir cacher un forum à la lecture de tous** (masquage total, pas une
+suppression de données ; pas de route de réouverture demandée pour l'instant ; le RP doit pouvoir
+retrouver ses propres forums cachés, sur le modèle "mine=true" déjà en place pour Quizz/Exercice).
+Arbitrage complet persisté dans `docs/architecture/identite-profils-acces.md` ("Suite du
+developpement des Forums, complements demandes le 2026-09-04").
+
+Délégué le 2026-09-04 : `community-path-service` d'abord (action de masquage réservée au RP, filtre
+de retrouvaille), `front-developper` ensuite (bouton "Cacher" dans `ForumModerationPanel`).
+
 ---
 
 Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :

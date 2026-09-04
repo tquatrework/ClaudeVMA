@@ -333,3 +333,37 @@
      Le texte reel de la charte sera fourni separement par l'utilisateur — ne pas attendre ce texte
      pour livrer le mecanisme technique.
 
+- Suite du developpement des Forums, complements demandes le 2026-09-04 apres livraison du premier
+  lot (backend PR #230, front PR #232, tous deux merges et deployes).
+  1. **Perimetre du bypass "acces illimite" confirme par l'utilisateur : RP + AF + TI.** Le point 2
+     ci-dessus laissait la decision a `community-path-service`, qui avait etendu ce bypass a AF+TI
+     en plus du RP garanti par l'arbitrage initial. **Confirme tel quel par l'utilisateur** ("ok pour
+     le 3") — ne plus le remettre en cause, ce n'est plus un point ouvert.
+  2. **Point 2 (ecran d'edition du texte de la charte) reste sciemment non traite.** L'utilisateur en
+     est conscient ("je suis conscient du 2") et ne demande rien pour l'instant — ne rien construire
+     tant qu'il ne fournit pas le texte reel de la charte et ne redemande pas explicitement cet ecran.
+  3. **Nouveau besoin, en reponse au point 1 (absence de route d'edition) : le RP doit pouvoir
+     retirer un forum de la lecture de tous — le "cacher".** Ce n'est **pas** une demande d'edition
+     complete des metadonnees (titre/description/tags/restriction de role) : l'utilisateur a
+     explicitement restreint sa demande a un retrait de visibilite, pas a une edition. Nouvelle
+     action reservee au RP (createur exclusif des forums, coherent avec le point 1 ci-dessus) :
+     - **Masquage total pour tout le monde sauf le RP**, meme discipline de masquage que la
+       restriction par role (point 2 ci-dessus) et que le reste du projet : un forum cache doit se
+       comporter, pour un lecteur non-RP, comme s'il n'existait pas (liste et detail), pas un refus
+       explicite qui reveleraient son existence.
+     - **Non destructif au niveau des donnees**, meme si aucune route de reouverture n'est demandee
+       ici : suit le principe deja pose plusieurs fois dans ce projet (consentements, relations,
+       validations de contenu) qu'un retrait n'efface jamais la ligne, il change un etat. Modeliser
+       comme un etat/indicateur plutot qu'une suppression physique, pour que reouvrir un forum plus
+       tard (si jamais demande) reste une evolution triviale plutot qu'une reconstruction.
+     - **Aucune route de reouverture ("decacher") n'est demandee pour l'instant** — ne pas la
+       construire par anticipation, seul le geste de retrait est demande.
+     - Le RP doit vraisemblablement retrouver ses propres forums caches quelque part (au minimum
+       pour savoir ce qu'il a retire) — meme principe que "mine=true" deja pose pour Quizz/Exercice
+       dans `content-catalog-service` : `community-path-service` peut reprendre cette convention
+       (un filtre "mes forums, tous etats confondus" sur `GET /forums`) plutot que d'inventer un
+       mecanisme different pour ce service.
+  4. **Sequencement identique au premier lot** : `community-path-service` d'abord (nouvelle action de
+     masquage, filtre de retrouvaille cote RP), `front-developper` ensuite (bouton "Cacher" dans le
+     panneau de moderation RP existant, `ForumModerationPanel`).
+

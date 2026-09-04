@@ -245,6 +245,13 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
       'administrateur_financier',
     ],
   },
+  // Édition de la charte de bonne conduite : réservée au RP et au TI, seuls rôles autorisés
+  // par PATCH /forums/charter côté community-path-service. Règle « préfixe le plus long
+  // gagne » (navigationFilters.ts) : cette entrée prime sur la règle plus large ci-dessus.
+  {
+    prefix: '/community/forums/charter',
+    roles: ['responsable_pedagogique', 'technicien_informatique'],
+  },
   {
     prefix: '/community/paths',
     roles: ['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique'],

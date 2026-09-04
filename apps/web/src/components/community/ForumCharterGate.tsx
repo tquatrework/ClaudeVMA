@@ -11,6 +11,7 @@ import React, { useState } from 'react'
 import { useForumCharter } from '../../hooks/community/useForumCharter'
 import { useForumCharterAcceptance } from '../../hooks/community/useForumCharterAcceptance'
 import { ErrorMessage } from '../ui/ErrorMessage'
+import { MarkdownText } from '../ui/MarkdownText'
 import { FORUM_LABELS } from '../../utils/forumLabels'
 
 interface ForumCharterGateProps {
@@ -49,12 +50,10 @@ export function ForumCharterGate({ children }: ForumCharterGateProps) {
             <p className="text-sm text-gray-400">Chargement de la charte…</p>
           ) : charter.loadError ? (
             <ErrorMessage message={charter.loadError} />
+          ) : charter.content.trim().length > 0 ? (
+            <MarkdownText content={charter.content} />
           ) : (
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">
-              {charter.content.trim().length > 0
-                ? charter.content
-                : FORUM_LABELS.charterEmptyPlaceholder}
-            </p>
+            <p className="text-sm text-gray-700">{FORUM_LABELS.charterEmptyPlaceholder}</p>
           )}
         </div>
       )}

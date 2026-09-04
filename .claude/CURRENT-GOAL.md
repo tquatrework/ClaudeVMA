@@ -23,6 +23,24 @@ réservée au RP), dernier gap connu du chantier Forums.
 Délégué le 2026-09-04 à `community-path-service` (écriture du texte), `front-developper` ensuite
 (rendu Markdown + écran d'édition RP).
 
+**`community-path-service` : fait, sans changement de code** (PR #244, mergée). Aucune limite de
+longueur bloquante (`content` en `text` Postgres, `@IsString()` seul). Texte réel écrit via un
+appel `PATCH /forums/charter` en HTTP direct contre la pile réelle avec un compte RP réel, `GET
+/forums/charter` vérifié caractère par caractère : correspondance exacte 3615/3615 avec le fichier
+source.
+
+**`front-developper` mergé (PR #245), déployé, site vérifié `200` (y compris
+`/community/forums/charter`, bundle confirmé à jour).** Rendu Markdown réel via `react-markdown`
+(nouveau composant `MarkdownText`, jamais `dangerouslySetInnerHTML`) branché dans
+`ForumCharterGate` ; nouvel écran `ForumCharterEditorPage` (route `/community/forums/charter`,
+RP+TI) pour éditer le texte depuis l'interface au lieu d'un appel API direct. 15 tests ajoutés
+(7 + 8), tous verts ; 51 échecs pré-existants inchangés (comparaison `git stash`), `tsc`/build
+propres.
+
+**Chantier Forums entièrement clos.** Les deux points laissés ouverts après le premier lot (édition
+des métadonnées, texte réel de la charte) sont désormais tous les deux livrés. Plus aucun gap connu
+sur ce domaine.
+
 ---
 
 Édition des métadonnées d'un forum par le RP, demandée le 2026-09-04, après réflexion de

@@ -1970,24 +1970,77 @@ pour la sortie complète.
 
 Préfixes gateway : `/api/v1/contacts` · `/api/v1/messages` · `/api/v1/conversations` · `/api/v1/threads` · `/api/v1/incidents` (🔒) → communication-service
 
-### Contacts autorisés
+### Contacts et messagerie — refondu le 2026-09-04
+
+> Arbitrage : `docs/architecture/contacts-messagerie.md`. Remplace entièrement l'ancien modèle
+> `ContactPolicy` (précontact/mandatory/visibility, synchronisé depuis `orchestration-service` via
+> `POST /internal/sync-contacts`) — cette route interne est **retirée**, elle n'a jamais été
+> appelée en production (0 ligne dans `contact_policies`). Le Contact est désormais une entité
+> propre à ce service : bidirectionnel (une seule ligne par paire, jamais deux lignes asymétriques),
+> à l'état `active`/`broken`, non destructif (rompre un contact ne supprime jamais la ligne).
 
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| GET | /contacts | Lister les contacts autorisés (obligatoires + précontacts) | 🔒 |
-| POST | /contacts/:id/activate | Activer un précontact (status: precontact → active) | 🔒 |
-| DELETE | /contacts/:id | Supprimer un contact actif (interdit si mandatory: true → 403) | 🔒 |
-| PATCH | /contacts/:id/visibility | Modifier la visibilité (visible/hidden) | 🔒 |
+| GET | /contacts | Lister mes contacts **actifs** | 🔒 |
+| POST | /contacts/:id/break | Rompre un contact actif (acte volontaire d'une des deux parties, jamais automatique) | 🔒 |
+| GET | /contacts/search/by-login-identifier?value= | Rechercher une personne par identifiant de connexion exact | 🔒 |
+| GET | /contacts/search/by-name?q= | Rechercher des personnes par prénom/nom | 🔒 |
+| GET | /contacts/requests/incoming | Lister mes demandes de contact reçues, en attente | 🔒 |
+| GET | /contacts/requests/outgoing | Lister mes demandes de contact envoyées (tous statuts) | 🔒 |
+| POST | /contacts/requests | Envoyer une demande de contact (`{targetId}`) | 🔒 |
+| POST | /contacts/requests/:id/accept | Accepter une demande reçue — crée le Contact actif | 🔒 |
+| POST | /contacts/requests/:id/decline | Refuser une demande reçue — journalisée pour la pénalité de refus | 🔒 |
 
-Retour Contact : `{id, userId, email?, displayName?, role?, status: 'active'|'precontact', mandatory: boolean, visibility?: 'visible'|'hidden'}`
+Retour Contact : `{id, counterpartId, counterpartName: {userId,firstName,lastName}|null, status: 'active'|'broken', origin: 'default'|'request', createdAt, brokenAt}`.
+Retour ContactRequest : `{id, counterpartId, counterpartName, status: 'pending'|'accepted'|'declined', createdAt, respondedAt}` — `counterpartId` est le demandeur sur une demande entrante, la cible sur une demande sortante.
+Retour recherche par identifiant : `{found: boolean, result: {userId, firstName, lastName, loginIdentifier}|null}`.
+Retour recherche par nom : `{results: [{userId, firstName, lastName, loginIdentifier}]}` — zéro ou un seul résultat est un cas normal, pas une anomalie (tous les noms ne sont pas connus).
+
+**Règles métier (voir `docs/architecture/contacts-messagerie.md` pour le détail complet)** :
+- N'importe quel utilisateur authentifié peut demander n'importe quel autre en contact, sans
+  restriction de rôle ni de relation préalable. Jamais d'acceptation automatique.
+- Contacts créés par défaut (origine `default`), sans demande ni acceptation, dérivés des
+  relations métier de `profile-service` (AP↔formateur animé, élève↔parent financeur,
+  élève↔formateur lié, parent↔formateur d'un élève financé — ce dernier calculé, pas une relation
+  directe) — consommés depuis le flux Redis `visiomath:events`, voir plus bas.
+- Refus d'une demande : journal append-only par paire dirigée (demandeur→cible). Après un refus,
+  cooldown d'un mois avant de pouvoir redemander la même cible ; au 3ᵉ refus cumulé, blocage
+  définitif dans ce sens uniquement (la cible reste libre de demander le demandeur à tout moment).
+- Messagerie conditionnée à un contact **actif** — vérifié à la création d'une conversation
+  (`POST /conversations`) et **à chaque envoi de message** (`POST /conversations/:id/messages`),
+  jamais en cache : un contact rompu après la création d'une conversation ferme immédiatement
+  l'envoi de nouveaux messages sur cette conversation (les threads d'incident TI, `isIncident:
+  true`, sont exemptés — ce n'est pas un contact pair à pair).
+- `404` (jamais `403`) quand l'appelant n'est pas partie au contact/à la demande visée — même
+  discipline de masquage que partout ailleurs dans ce projet.
+
+**Blocages identifiés côté `profile-service` — à lever avant que les contacts par défaut
+fonctionnent réellement** (voir aussi `docs/services/communication-service.md`) :
+1. `profile-service` ne publie **aucun** événement sur le stream Redis `visiomath:events`
+   aujourd'hui (vérifié le 2026-09-04 par `XRANGE` réel : seuls `teacher-request-service`,
+   `calendar-service` et `learning-activity-service` y publient). `TeacherLinkedToStudent`,
+   `StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` (et leurs pendants `Unlinked`,
+   ignorés côté consommateur par choix — un contact ne se rompt jamais automatiquement) restent
+   pour l'instant un « journal structuré » interne à `profile-service`, jamais `XADD`é. Le
+   consommateur (`RelationEventConsumerService`, groupe `communication-service`, démarré à `0`,
+   dédupliqué par `eventId`) est écrit et prêt, mais restera inactif tant que `profile-service` ne
+   réplique pas le pattern outbox + `XADD` déjà utilisé par `teacher-request-service`.
+2. Aucune route `GET /internal/profiles/search-by-name` n'existe côté `profile-service` — requise
+   pour `GET /contacts/search/by-name`. Contrat attendu, à confirmer avec `profile-service` :
+   `X-Internal-Secret`, `?q=`, réponse `{results: [{userId, firstName, lastName, loginIdentifier}]}`
+   (composé avec `identity-access-service` côté `profile-service`, sur le modèle de ce qu'il fait
+   déjà pour `loginIdentifier` dans `GET /profiles/:userId`).
+3. Le format exact de `GET /internal/accounts/by-login-identifier` (identity-access-service) n'est
+   pas confirmé — supposé `{userId, loginIdentifier, role}` par analogie avec
+   `GET /internal/accounts/by-user-id/:userId`, non vérifié empiriquement.
 
 ### Conversations
 
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| POST | /conversations | Créer une conversation | 🔒 |
+| POST | /conversations | Créer une conversation entre contacts actifs | 🔒 |
 | GET | /conversations | Lister mes conversations | 🔒 |
-| POST | /conversations/:id/messages | Envoyer un message | 🔒 |
+| POST | /conversations/:id/messages | Envoyer un message (contact actif requis, sauf thread d'incident) | 🔒 |
 
 ### Messages
 
@@ -2005,7 +2058,9 @@ Retour Contact : `{id, userId, email?, displayName?, role?, status: 'active'|'pr
 | GET | /incidents/:id | Détail d'un incident | 🔒 |
 | PUT | /incidents/:id/status | Changer le statut d'un incident | 🔒 |
 
-API interne (non exposée via nginx) : `POST /internal/sync-contacts` — protégée par `X-Internal-Secret`.
+Aucune route interne (`/internal/*`) n'est exposée par ce service depuis le retrait de
+`POST /internal/sync-contacts` (2026-09-04) — `communication-service` est désormais uniquement
+**appelant** vis-à-vis de `profile-service`/`identity-access-service`, jamais appelé par eux.
 
 ---
 

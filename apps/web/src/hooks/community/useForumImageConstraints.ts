@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { fetchForumImageConstraints } from '../../api/communityPath'
+import { fetchForumImageConstraints } from '../../api/forums'
 import {
   FALLBACK_FORUM_IMAGE_CONSTRAINTS,
   normalizeForumImageConstraints,

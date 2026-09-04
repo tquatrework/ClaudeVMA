@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { acceptForumCharter, fetchForumCharterAcceptance } from '../../api/communityPath'
+import { acceptForumCharter, fetchForumCharterAcceptance } from '../../api/forums'
 import { getErrorMessage } from '../../utils/apiError'
 
 export interface UseForumCharterAcceptanceResult {

@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react'
-import { uploadForumImage } from '../../api/communityPath'
+import { uploadForumImage } from '../../api/forums'
 import { getErrorMessage } from '../../utils/apiError'
 import { isForumImageFileTooLarge } from '../../utils/forumImageConstraints'
 import { getForumImageMaxSizeHint, FORUM_LABELS } from '../../utils/forumLabels'

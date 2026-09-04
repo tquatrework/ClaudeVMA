@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { fetchForum } from '../../api/communityPath'
+import { fetchForum } from '../../api/forums'
 import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
 import { FORUM_LABELS } from '../../utils/forumLabels'
 import type { Forum } from '../../types/forum'

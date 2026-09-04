@@ -19,7 +19,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/communityPath')
+vi.mock('../../../src/api/forums')
 
 import { useAuth } from '../../../src/hooks/useAuth'
 import {
@@ -30,7 +30,7 @@ import {
   createForumComment,
   deleteForumComment,
   fetchForumImageConstraints,
-} from '../../../src/api/communityPath'
+} from '../../../src/api/forums'
 import ForumDetailPage from '../../../src/pages/ForumDetailPage'
 import type { Forum, ForumComment } from '../../../src/types/forum'
 

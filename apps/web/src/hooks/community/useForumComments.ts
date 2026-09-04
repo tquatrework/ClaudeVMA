@@ -8,7 +8,7 @@ import {
   createForumComment,
   deleteForumComment,
   fetchForumComments,
-} from '../../api/communityPath'
+} from '../../api/forums'
 import { getErrorMessage, readErrorPayload } from '../../utils/apiError'
 import {
   CHARTER_NOT_ACCEPTED_ERROR_CODE,

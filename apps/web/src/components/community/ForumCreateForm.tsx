@@ -7,7 +7,7 @@
  */
 
 import React, { useState } from 'react'
-import { createForum } from '../../api/communityPath'
+import { createForum } from '../../api/forums'
 import { getErrorMessage } from '../../utils/apiError'
 import { getRoleLabel } from '../../utils/role'
 import { ErrorMessage } from '../ui/ErrorMessage'

@@ -18,10 +18,10 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/communityPath')
+vi.mock('../../../src/api/forums')
 
 import { useAuth } from '../../../src/hooks/useAuth'
-import { fetchForums, createForum, fetchForumImageConstraints } from '../../../src/api/communityPath'
+import { fetchForums, createForum, fetchForumImageConstraints } from '../../../src/api/forums'
 import ForumCatalogPage from '../../../src/pages/ForumCatalogPage'
 import type { Forum } from '../../../src/types/forum'
 

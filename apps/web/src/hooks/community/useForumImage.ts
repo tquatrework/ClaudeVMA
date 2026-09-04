@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { fetchForumImageBlob } from '../../api/communityPath'
+import { fetchForumImageBlob } from '../../api/forums'
 import { getErrorStatus } from '../../utils/apiError'
 
 export interface UseForumImageResult {

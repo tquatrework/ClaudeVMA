@@ -15,7 +15,7 @@ import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { createForumExclusion, type ForumExclusion } from '../api/communityPath'
+import { createForumExclusion, type ForumExclusion } from '../api/forums'
 
 export default function ForumModerationPanel() {
   const { forumId } = useParams<{ forumId: string }>()

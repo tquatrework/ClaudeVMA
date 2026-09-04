@@ -19,10 +19,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/communityPath')
+vi.mock('../../../src/api/forums')
 
 import { useAuth } from '../../../src/hooks/useAuth'
-import { createForumExclusion } from '../../../src/api/communityPath'
+import { createForumExclusion } from '../../../src/api/forums'
 import ForumModerationPanel from '../../../src/pages/ForumModerationPanel'
 import type { ForumExclusion } from '../../../src/types/forum'
 

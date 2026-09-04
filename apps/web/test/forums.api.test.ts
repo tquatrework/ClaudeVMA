@@ -1,5 +1,5 @@
 /**
- * Tests du transport HTTP des Forums (`src/api/communityPath.ts`) — contrat exact de
+ * Tests du transport HTTP des Forums (`src/api/forums.ts`) — contrat exact de
  * `docs/routes.md` § « community-path-service » (refonte du 2026-09-04).
  *
  * Portée volontairement limitée : `apiClient` est simulé ici, ce fichier vérifie les chemins, les
@@ -33,7 +33,7 @@ import {
   uploadForumImage,
   fetchForumImageBlob,
   createForumExclusion,
-} from '../src/api/communityPath'
+} from '../src/api/forums'
 
 const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)

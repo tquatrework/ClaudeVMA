@@ -25,7 +25,7 @@ import { CatalogItemCard } from '../components/ui/CatalogItemCard'
 import { ForumCreateForm } from '../components/community/ForumCreateForm'
 import { ForumImageUploader } from '../components/community/ForumImageUploader'
 import { ForumThumbnail } from '../components/community/ForumThumbnail'
-import { fetchForums } from '../api/communityPath'
+import { fetchForums } from '../api/forums'
 import { formatAllowedRolesLabel, FORUM_LABELS } from '../utils/forumLabels'
 import type { Forum } from '../types/forum'
 

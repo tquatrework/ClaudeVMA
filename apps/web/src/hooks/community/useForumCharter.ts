@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { fetchForumCharter, updateForumCharter } from '../../api/communityPath'
+import { fetchForumCharter, updateForumCharter } from '../../api/forums'
 import { getErrorMessage } from '../../utils/apiError'
 
 export interface UseForumCharterResult {

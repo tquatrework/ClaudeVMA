@@ -31,6 +31,7 @@ import {
   ForumImageStorageService,
 } from './services/forum-image-storage.service';
 import { Pagination, PaginatedResult, buildPaginatedResult } from '../common/utils/pagination.util';
+import { DisplayName, ProfileServiceClient } from '../common/clients/profile-service.client';
 
 /** Titre du sujet système créé automatiquement à la création d'un forum. */
 export const DEFAULT_TOPIC_TITLE = 'Sujet général';
@@ -67,6 +68,15 @@ export interface CharterAcceptanceStatus {
   acceptedAt: Date | null;
 }
 
+/**
+ * Une entité enrichie de son auteur résolu — jamais un UUID affiché à
+ * l'utilisateur (arbitrage du 2026-09-04, "Affichage de l'auteur de chaque
+ * commentaire"). `null` quand profile-service n'a pas pu résoudre le nom
+ * (dégradation gracieuse, voir ProfileServiceClient) ou n'a rien renvoyé
+ * pour cet identifiant.
+ */
+export type WithAuthorName<T> = T & { authorName: DisplayName | null };
+
 @Injectable()
 export class ForumsService {
   constructor(
@@ -83,7 +93,25 @@ export class ForumsService {
     @InjectRepository(ForumCharterAcceptance)
     private readonly charterAcceptanceRepository: Repository<ForumCharterAcceptance>,
     private readonly imageStorage: ForumImageStorageService,
+    private readonly profileServiceClient: ProfileServiceClient,
   ) {}
+
+  /**
+   * Résout les noms d'un lot d'auteurs et les attache à chaque entité —
+   * un seul appel groupé à profile-service par page, plutôt qu'un appel par
+   * commentaire/sujet (arbitrage du 2026-09-04, point explicite de
+   * l'arbitrage : "à privilégier pour une liste de commentaires").
+   */
+  private async attachAuthorNames<T extends { authorId: string }>(
+    entities: T[],
+  ): Promise<WithAuthorName<T>[]> {
+    const authorIds = entities.map((entity) => entity.authorId);
+    const namesByUserId = await this.profileServiceClient.resolveDisplayNames(authorIds);
+    return entities.map((entity) => ({
+      ...entity,
+      authorName: namesByUserId.get(entity.authorId) ?? null,
+    }));
+  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Forums
@@ -410,13 +438,17 @@ export class ForumsService {
    * siens propres (tous statuts), plus tout ce que voit un administrateur
    * (RP/AF/TI). Le sujet système "Sujet général" apparaît toujours en
    * premier, les autres triés du plus récent au plus ancien.
+   *
+   * Chaque sujet est enrichi de `authorName` (arbitrage du 2026-09-04,
+   * "Affichage de l'auteur de chaque commentaire") — même gap que les
+   * commentaires, corrigé dans le même mouvement.
    */
   async findTopics(
     forumId: string,
     requesterId: string,
     requesterRole: string,
     pagination: Pagination,
-  ): Promise<PaginatedResult<ForumTopic>> {
+  ): Promise<PaginatedResult<WithAuthorName<ForumTopic>>> {
     await this.getAccessibleForumOrThrow(forumId, requesterRole);
 
     const queryBuilder = this.topicRepository
@@ -441,12 +473,23 @@ export class ForumsService {
       .take(pagination.limit)
       .getManyAndCount();
 
-    return buildPaginatedResult(data, total, pagination);
+    const enrichedData = await this.attachAuthorNames(data);
+    return buildPaginatedResult(enrichedData, total, pagination);
   }
 
-  /** Détail d'un sujet — même masquage que `findTopics`. */
-  async getTopic(forumId: string, topicId: string, requesterId: string, requesterRole: string): Promise<ForumTopic> {
-    return this.getAccessibleTopicOrThrow(forumId, topicId, requesterId, requesterRole);
+  /**
+   * Détail d'un sujet — même masquage que `findTopics`. Enrichi de
+   * `authorName`, même arbitrage que ci-dessus.
+   */
+  async getTopic(
+    forumId: string,
+    topicId: string,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<WithAuthorName<ForumTopic>> {
+    const topic = await this.getAccessibleTopicOrThrow(forumId, topicId, requesterId, requesterRole);
+    const [enrichedTopic] = await this.attachAuthorNames([topic]);
+    return enrichedTopic;
   }
 
   /**
@@ -546,6 +589,11 @@ export class ForumsService {
    * Liste paginée des commentaires d'un sujet, du plus ancien au plus récent
    * (ordre de lecture d'un fil de discussion). Mêmes droits de lecture que
    * le détail du sujet (même masquage 404).
+   *
+   * Chaque commentaire est enrichi de `authorName` (arbitrage du 2026-09-04,
+   * "Affichage de l'auteur de chaque commentaire") : un seul appel groupé à
+   * profile-service sur tous les `authorId` distincts de la page, plutôt
+   * qu'un appel par commentaire.
    */
   async getTopicComments(
     forumId: string,
@@ -553,7 +601,7 @@ export class ForumsService {
     requesterId: string,
     requesterRole: string,
     pagination: Pagination,
-  ): Promise<PaginatedResult<ForumComment>> {
+  ): Promise<PaginatedResult<WithAuthorName<ForumComment>>> {
     await this.getAccessibleTopicOrThrow(forumId, topicId, requesterId, requesterRole);
 
     const [data, total] = await this.commentRepository.findAndCount({
@@ -563,7 +611,8 @@ export class ForumsService {
       take: pagination.limit,
     });
 
-    return buildPaginatedResult(data, total, pagination);
+    const enrichedData = await this.attachAuthorNames(data);
+    return buildPaginatedResult(enrichedData, total, pagination);
   }
 
   /**

@@ -654,6 +654,10 @@ services:
       # stockage binaire propre a ce service. Volume nomme dedie, jamais
       # media_data (profile-service) ni les volumes d'un autre service.
       FORUM_IMAGE_STORAGE_PATH: /app/storage/forum-images
+      # Resolution des noms d'auteur (arbitrage du 2026-09-04, "Affichage de
+      # l'auteur de chaque commentaire") — meme convention que les autres
+      # services clients de profile-service.
+      PROFILE_SERVICE_URL: http://profile-service:3002
     volumes:
       - community_path_forum_images:/app/storage/forum-images
     depends_on:

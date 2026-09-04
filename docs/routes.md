@@ -3677,11 +3677,11 @@ colonne de rattachement désormais, `forumId` a été retiré de cette entité).
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /forums/:id/topics | Créer un sujet (titre + premier message) | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 {ForumTopic..., firstComment: ForumComment}` · `403` exclu de ce forum, ou charte non acceptée (corps structuré, voir plus bas) · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché pour un appelant non RP |
-| GET | /forums/:id/topics | Lister les sujets visibles par l'appelant : validés + les siens propres (tous statuts) + tout ce que voit un administrateur (RP/AF/TI, tous statuts). Paginé. Le sujet système apparaît toujours en premier | 🔒 | tous rôles autorisés sur ce forum | `200 {data: ForumTopic[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` forum inexistant/non accessible |
-| GET | /forums/:id/topics/:topicId | Détail d'un sujet | 🔒 | auteur, tout compte si `validated`, ou administrateur (RP/AF/TI) | `200 ForumTopic` · `401` · `404` forum ou sujet introuvable, ou sujet non visible à l'appelant (masquage, même erreur générique) |
+| GET | /forums/:id/topics | Lister les sujets visibles par l'appelant : validés + les siens propres (tous statuts) + tout ce que voit un administrateur (RP/AF/TI, tous statuts). Paginé. Le sujet système apparaît toujours en premier. Chaque sujet porte `authorName` (voir plus bas, 2026-09-04) | 🔒 | tous rôles autorisés sur ce forum | `200 {data: ForumTopic[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` forum inexistant/non accessible |
+| GET | /forums/:id/topics/:topicId | Détail d'un sujet. Porte `authorName` (voir plus bas, 2026-09-04) | 🔒 | auteur, tout compte si `validated`, ou administrateur (RP/AF/TI) | `200 ForumTopic` · `401` · `404` forum ou sujet introuvable, ou sujet non visible à l'appelant (masquage, même erreur générique) |
 | POST | /forums/:id/topics/:topicId/decision | Valider ou refuser un sujet en attente | 🔒 | responsable_pedagogique (uniquement — **pas de scoping AP** ici, à la différence du contenu pédagogique générique de `content-catalog-service`) | `200 ForumTopic` (à jour) · `400` décision invalide, ou sujet système (`isDefault`) non soumis à validation · `403` appelant non RP · `404` forum ou sujet introuvable |
 | POST | /forums/:id/topics/:topicId/comments | Publier un commentaire dans un sujet. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte, sujet visible à l'appelant | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (corps structuré, voir plus bas) · `404` forum ou sujet introuvable, ou sujet non visible à l'appelant |
-| GET | /forums/:id/topics/:topicId/comments | Lister les commentaires d'un sujet, **du plus ancien au plus récent**. Paginé | 🔒 | mêmes droits que le détail du sujet | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que le détail du sujet |
+| GET | /forums/:id/topics/:topicId/comments | Lister les commentaires d'un sujet, **du plus ancien au plus récent**. Paginé. Chaque commentaire porte `authorName` (voir plus bas, 2026-09-04) | 🔒 | mêmes droits que le détail du sujet | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que le détail du sujet |
 | DELETE | /forums/:id/topics/:topicId/comments/:commentId | Supprimer un commentaire a posteriori. Suppression **physique**, définitive (pas de trace conservée — inchangé par rapport à l'ancien mécanisme) | 🔒 | responsable_pedagogique (uniquement — ni l'auteur, ni l'AP, ni le TI) | `204` (pas de corps) · `403` appelant non RP · `404` commentaire introuvable sur ce `topicId` précis |
 
 Body `POST /forums/:id/topics` :
@@ -3717,6 +3717,41 @@ premier commentaire tout juste créé (évite un second appel pour l'afficher im
 **sans** le champ `firstComment` (propre à la réponse de création) — pour lire le premier message
 d'un sujet déjà créé, passer par `GET /forums/:id/topics/:topicId/comments` comme n'importe quel
 autre commentaire du sujet.
+
+**Affichage de l'auteur (`authorName`), arbitrage du 2026-09-04.** Aucun UUID ne doit être affiché
+à un utilisateur (arbitrage du 2026-08-09) : `authorId` seul ne suffit jamais côté front.
+`community-path-service` résout `authorId` en prénom/nom auprès de `profile-service` (routes
+internes `POST /internal/profiles/display-names` — appel groupé, un seul par page de résultats —
+et `GET /internal/profiles/:userId/display-name` pour une résolution unitaire), même mécanisme déjà
+repris par `calendar-service`, `teacher-request-service`, `video-session-service` et
+`dashboard-notification-service`.
+
+- **`GET /forums/:id/topics/:topicId/comments`** : chaque élément de `data[]` porte en plus un
+  champ `authorName`.
+- **`GET /forums/:id/topics`** (liste) et **`GET /forums/:id/topics/:topicId`** (détail) : chaque
+  `ForumTopic` porte le même champ `authorName`, résolu pour l'auteur du sujet (créateur, auteur de
+  son premier message) — même mécanisme, même effort, pour ne pas laisser d'incohérence entre
+  l'écran de liste des sujets et le fil de commentaires.
+- Forme exacte, identique sur les trois routes : `authorName: {firstName: string | null, lastName:
+  string | null} | null`. `null` dans deux cas, indistincts côté front : `profile-service`
+  injoignable (dégradation gracieuse — la lecture des commentaires/sujets n'est jamais bloquée pour
+  ce seul motif) ou `authorId` absent de sa réponse (anomalie de données). Dans les deux cas, le
+  front doit afficher un état neutre (ex. « Auteur inconnu »), **jamais** se rabattre sur `authorId`
+  à l'affichage.
+- `firstComment` de la réponse `POST /forums/:id/topics` (création) **ne porte pas** `authorName` —
+  l'auteur est l'appelant lui-même, connu du front sans résolution.
+
+```json
+{
+  "id": "uuid",
+  "topicId": "uuid",
+  "authorId": "uuid",
+  "authorRole": "string",
+  "content": "string",
+  "createdAt": "ISO date",
+  "authorName": { "firstName": "string | null", "lastName": "string | null" } | null
+}
+```
 
 Body `POST /forums/:id/topics/:topicId/decision` :
 

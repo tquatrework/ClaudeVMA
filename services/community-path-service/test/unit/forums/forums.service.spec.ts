@@ -25,6 +25,7 @@ import { ForumImageStorageService } from '../../../src/forums/services/forum-ima
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { ForumRestrictableRole } from '../../../src/common/enums/forum-restrictable-role.enum';
 import { ForumTopicStatus } from '../../../src/common/enums/forum-topic-status.enum';
+import { ProfileServiceClient } from '../../../src/common/clients/profile-service.client';
 
 const RP_ID = 'rp-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID = 'ap-0000-4000-b000-bbbbbbbbbbbb';
@@ -108,6 +109,7 @@ describe('ForumsService', () => {
   let charterSettingRepo: ReturnType<typeof buildMockRepo>;
   let charterAcceptanceRepo: ReturnType<typeof buildMockRepo>;
   let imageStorage: { store: jest.Mock; read: jest.Mock; remove: jest.Mock };
+  let profileServiceClient: { resolveDisplayNames: jest.Mock };
 
   beforeEach(async () => {
     forumRepo = buildMockRepo();
@@ -117,6 +119,11 @@ describe('ForumsService', () => {
     charterSettingRepo = buildMockRepo();
     charterAcceptanceRepo = buildMockRepo();
     imageStorage = { store: jest.fn(), read: jest.fn(), remove: jest.fn() };
+    // Dégradation gracieuse par défaut dans les tests qui ne portent pas
+    // spécifiquement sur la résolution de nom : Map vide, comme le ferait un
+    // profile-service injoignable — n'importe quel test peut alors s'attendre
+    // à `authorName: null` sans avoir à mocker explicitement ce client.
+    profileServiceClient = { resolveDisplayNames: jest.fn().mockResolvedValue(new Map()) };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -128,6 +135,7 @@ describe('ForumsService', () => {
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
         { provide: getRepositoryToken(ForumCharterAcceptance), useValue: charterAcceptanceRepo },
         { provide: ForumImageStorageService, useValue: imageStorage },
+        { provide: ProfileServiceClient, useValue: profileServiceClient },
       ],
     }).compile();
 
@@ -643,6 +651,41 @@ describe('ForumsService', () => {
         forumsService.findTopics(FORUM_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it(
+      "chaque sujet porte authorName résolu aupres de profile-service (arbitrage du 2026-09-04, " +
+        "« Affichage de l'auteur de chaque commentaire ») ; null en dégradation gracieuse",
+      async () => {
+        forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+        const topics = [
+          buildSampleTopic({ id: 'tp-1', authorId: ELEVE_ID }),
+          buildSampleTopic({ id: 'tp-2', authorId: FORMATEUR_ID }),
+        ];
+        topicRepo.createQueryBuilder.mockReturnValue({
+          where: jest.fn().mockReturnThis(),
+          orderBy: jest.fn().mockReturnThis(),
+          addOrderBy: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          skip: jest.fn().mockReturnThis(),
+          take: jest.fn().mockReturnThis(),
+          getManyAndCount: jest.fn().mockResolvedValue([topics, 2]),
+        });
+        profileServiceClient.resolveDisplayNames.mockResolvedValue(
+          new Map([[ELEVE_ID, { firstName: 'Camille', lastName: 'Durand' }]]),
+        );
+
+        const result = await forumsService.findTopics(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE, {
+          page: 1,
+          limit: 20,
+        });
+
+        expect(profileServiceClient.resolveDisplayNames).toHaveBeenCalledWith([ELEVE_ID, FORMATEUR_ID]);
+        expect(result.data[0].authorName).toEqual({ firstName: 'Camille', lastName: 'Durand' });
+        // FORMATEUR_ID absent de la Map renvoyée par profile-service (dégradation
+        // gracieuse ou anomalie de données) → authorName: null, jamais fabriqué.
+        expect(result.data[1].authorName).toBeNull();
+      },
+    );
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -699,6 +742,21 @@ describe('ForumsService', () => {
       await expect(
         forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it("porte authorName résolu aupres de profile-service (arbitrage du 2026-09-04)", async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.VALIDATED, authorId: ELEVE_ID }),
+      );
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(
+        new Map([[ELEVE_ID, { firstName: 'Camille', lastName: 'Durand' }]]),
+      );
+
+      const result = await forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE);
+
+      expect(profileServiceClient.resolveDisplayNames).toHaveBeenCalledWith([ELEVE_ID]);
+      expect(result.authorName).toEqual({ firstName: 'Camille', lastName: 'Durand' });
     });
   });
 
@@ -850,7 +908,63 @@ describe('ForumsService', () => {
       expect(commentRepo.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({ where: { topicId: TOPIC_ID }, order: { createdAt: 'ASC' }, skip: 0, take: 20 }),
       );
-      expect(result).toEqual({ data: comments, page: 1, limit: 20, total: 2, totalPages: 1 });
+      expect(result).toEqual({
+        data: comments.map((comment) => ({ ...comment, authorName: null })),
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      });
+    });
+
+    it(
+      "résout authorName en un seul appel groupé sur les authorId distincts (arbitrage du 2026-09-04, " +
+        "« Affichage de l'auteur de chaque commentaire »)",
+      async () => {
+        forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+        topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+        const comments = [
+          { id: 'cmt-1', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date('2026-01-01') },
+          { id: 'cmt-2', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'b', createdAt: new Date('2026-01-02') },
+          { id: 'cmt-3', topicId: TOPIC_ID, authorId: FORMATEUR_ID, authorRole: UserRole.FORMATEUR, content: 'c', createdAt: new Date('2026-01-03') },
+        ];
+        commentRepo.findAndCount = jest.fn().mockResolvedValue([comments, 3]);
+        profileServiceClient.resolveDisplayNames.mockResolvedValue(
+          new Map([
+            [ELEVE_ID, { firstName: 'Camille', lastName: 'Durand' }],
+            [FORMATEUR_ID, { firstName: 'Alex', lastName: 'Martin' }],
+          ]),
+        );
+
+        const result = await forumsService.getTopicComments(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+
+        // Un seul appel groupé, avec les authorId (dédupliqués côté service par
+        // ProfileServiceClient.resolveDisplayNames, testé séparément), pas un
+        // appel par commentaire.
+        expect(profileServiceClient.resolveDisplayNames).toHaveBeenCalledTimes(1);
+        expect(profileServiceClient.resolveDisplayNames).toHaveBeenCalledWith([ELEVE_ID, ELEVE_ID, FORMATEUR_ID]);
+        expect(result.data[0].authorName).toEqual({ firstName: 'Camille', lastName: 'Durand' });
+        expect(result.data[2].authorName).toEqual({ firstName: 'Alex', lastName: 'Martin' });
+      },
+    );
+
+    it('dégrade gracieusement (authorName: null) si profile-service est injoignable, sans bloquer la lecture', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+      const comments = [
+        { id: 'cmt-1', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date('2026-01-01') },
+      ];
+      commentRepo.findAndCount = jest.fn().mockResolvedValue([comments, 1]);
+      // ProfileServiceClient.resolveDisplayNames() dégrade déjà gracieusement
+      // en Map vide en cas d'échec (testé dans profile-service.client.spec.ts) ;
+      // ForumsService n'a rien de plus à faire que consommer cette Map telle
+      // quelle, sans jamais lever ni bloquer la lecture des commentaires.
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      const result = await forumsService.getTopicComments(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+
+      expect(result.data[0].authorName).toBeNull();
+      expect(result.data[0].content).toBe('a');
     });
 
     it("lève NotFoundException (masquage) si le sujet n'est pas visible à l'appelant", async () => {

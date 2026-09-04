@@ -32,6 +32,30 @@ forums/commentaires existants, nouvelles routes), `front-developper` ensuite (re
 
 Délégué le 2026-09-04 à `community-path-service`.
 
+**`community-path-service` mergé (PR #248), déployé, vérifié.** Interrompu une fois en cours de
+route par une limite de taux API (« session limit »), relancé depuis là où il s'était arrêté, rien
+de perdu. Livré : entité `ForumTopic` (`pending_validation`/`validated`/`rejected`), sujet système
+"Sujet général" auto-créé et auto-validé à la création d'un forum, **forums déjà existants en
+production rattrapés** (sujet par défaut créé rétroactivement, commentaires existants migrés vers
+ce sujet — vérifié en conditions réelles avant merge, backup pris avant), 4 champs
+(niveau/difficulté/compétences/thème) retirés de `Forum` en DTO et en base, anciennes routes
+`POST`/`GET`/`DELETE /forums/:id/comments` retirées (remplacées par `/forums/:id/topics/...`). 220
+tests verts.
+
+**Correctif appliqué avant merge** : l'agent avait auto-validé les sujets créés par un AP (par
+cohérence avec le cycle de validation du contenu pédagogique de `content-catalog-service`), ce que
+l'arbitrage ne prévoyait pas — seul le sujet système échappe à la validation, tout sujet créé par
+un membre (RP ou AP compris) doit désormais passer par `pending_validation`. Corrigé, tests
+adaptés, revérifié.
+
+Redéployé une seconde fois depuis `master` par l'orchestrateur (le premier déploiement de l'agent
+venait de son propre worktree) pour garantir la cohérence avec le commit mergé — nouvelles routes
+`/forums/:id/topics/...` confirmées dans les logs de démarrage, ancienne route `/forums/:id/comments`
+absente de la liste des routes enregistrées (confirmation indépendante du rapport de l'agent).
+
+**Reste à faire** : déléguer `front-developper` — refonte de `ForumDetailPage` en liste de sujets +
+page de détail de sujet, simplification de `ForumCreateForm` (retrait des 4 champs).
+
 ---
 
 Texte réel de la charte de bonne conduite des forums, fourni par l'utilisateur le 2026-09-04 —

@@ -35,6 +35,7 @@ const mockForumsService = {
   createForum: jest.fn(),
   findAllForums: jest.fn(),
   getForum: jest.fn(),
+  updateForum: jest.fn(),
   hideForum: jest.fn(),
   getForumComments: jest.fn(),
   addComment: jest.fn(),
@@ -197,6 +198,34 @@ describe('ForumsController', () => {
       mockForumsService.getForum.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
 
       await expect(controller.findOneForum(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── PATCH /forums/:id ───────────────────────────────────────────────────
+
+  describe('PATCH /forums/:id — updateForum()', () => {
+    const updateDto = { title: 'Titre édité' };
+
+    it('délègue au service avec forumId, le dto et le rôle courant', async () => {
+      const updatedForum = { ...mockForum, title: 'Titre édité' };
+      mockForumsService.updateForum.mockResolvedValue(updatedForum);
+
+      const result = await controller.updateForum(FORUM_ID, updateDto, rpUser);
+
+      expect(mockForumsService.updateForum).toHaveBeenCalledWith(FORUM_ID, updateDto, UserRole.RESPONSABLE_PEDAGOGIQUE);
+      expect(result).toEqual(updatedForum);
+    });
+
+    it("propage ForbiddenException si l'appelant n'est pas RP (pas même AP)", async () => {
+      mockForumsService.updateForum.mockRejectedValue(new ForbiddenException());
+
+      await expect(controller.updateForum(FORUM_ID, updateDto, apUser)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('propage NotFoundException si le forum est introuvable', async () => {
+      mockForumsService.updateForum.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+
+      await expect(controller.updateForum(FORUM_ID, updateDto, rpUser)).rejects.toThrow(NotFoundException);
     });
   });
 

@@ -3432,6 +3432,7 @@ n'existe plus pour ce type de contenu.
 |---|---|---|---|---|---|
 | POST | /forums | Créer un forum, visible immédiatement (aucune étape de publication/validation) | 🔒 | responsable_pedagogique (uniquement — l'AP a perdu ce droit le 2026-09-04) | `201 Forum` · `400` DTO invalide · `401` · `403` `"Seul le responsable pédagogique peut créer un forum"` |
 | GET | /forums | Lister les forums accessibles à l'appelant, filtrables par `tags` (query, chaîne séparée par virgules, correspondance `ILIKE` partielle insensible à la casse, `OR` entre tags) et par `mine` (query, `mine=true` : ne renvoie que les forums créés par l'appelant, tous statuts confondus, y compris ses propres forums cachés — ajouté le 2026-09-04) | 🔒 | tous rôles authentifiés | `200 Forum[]` · `401` |
+| PATCH | /forums/:id | Éditer les métadonnées d'un forum (titre, description, tags, `allowedRoles`). Seuls les champs fournis dans le body sont modifiés ; **tout RP** peut éditer **n'importe quel forum**, pas seulement son créateur (même principe que le masquage ci-dessous). Un forum caché (`isHidden`) reste éditable. L'image d'illustration n'est pas concernée, elle reste gérée par `POST /forums/:id/image` — ajouté le 2026-09-04 | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité complète à jour) · `400` DTO invalide (ex. `title` fourni vide) · `401` · `403` appelant non RP · `404` forum introuvable |
 | POST | /forums/:id/hide | Masquer un forum — le retire de la lecture de tout le monde sauf du RP. Non destructif (`isHidden` posé à `true`, la ligne n'est jamais supprimée). Idempotent : masquer un forum déjà caché renvoie l'entité telle quelle, sans réécrire `hiddenAt`/`hiddenByUserId`. Aucune route de réouverture n'existe pour l'instant — ajouté le 2026-09-04 | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité à jour, `isHidden: true`) · `401` · `403` appelant non RP · `404` forum introuvable |
 
 Body `POST /forums` :
@@ -3457,8 +3458,31 @@ réglage (`FORUM_ADMIN_BYPASS_ROLES`), les y ajouter n'aurait aucun effet ; ne p
 dans un sélecteur front. Les 4 seules valeurs acceptées sont celles de `ForumRestrictableRole` :
 `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`. Toute autre valeur → `400`.
 
-Forme de l'entité `Forum`, renvoyée par `POST /forums`, dans le tableau de `GET /forums`, et par
-`POST /forums/:id/image` (mise à jour) :
+Body `PATCH /forums/:id` — ajouté le 2026-09-04, tous les champs sont **optionnels**, mêmes règles
+de validation que `POST /forums` pour chacun d'eux (ex. `title`, si fourni, ne peut pas être une
+chaîne vide) ; un champ absent du body n'est **pas modifié** (pas de réinitialisation implicite) :
+
+```json
+{
+  "title": "string (optionnel, non vide si fourni)",
+  "description": "string (optionnel)",
+  "level": "string (optionnel)",
+  "difficulty": "string (optionnel)",
+  "theme": "string (optionnel)",
+  "competences": "string (optionnel)",
+  "tags": "string (optionnel)",
+  "allowedRoles": ["eleve" | "parent_financeur" | "formateur" | "animateur_pedagogique"] (optionnel)
+}
+```
+
+`allowedRoles` fourni comme tableau vide `[]` est normalisé en `null` (ouvert à tous), exactement
+comme à la création — pour retirer toute restriction de rôle, envoyer `"allowedRoles": []`. Pour ne
+pas toucher `allowedRoles`, ne pas inclure la clé dans le body. La réponse est l'entité `Forum`
+complète mise à jour (voir forme ci-dessous), jamais un corps partiel — même convention que le
+reste du projet (« on réaffiche la réponse reçue, jamais le corps envoyé »).
+
+Forme de l'entité `Forum`, renvoyée par `POST /forums`, `PATCH /forums/:id`, dans le tableau de
+`GET /forums`, et par `POST /forums/:id/image` (mise à jour) :
 
 ```json
 {

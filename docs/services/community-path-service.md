@@ -251,3 +251,31 @@ de tout le monde sauf lui-même.
   `tsc --noEmit` propre.
 - Contrat détaillé : `docs/routes.md`, section `## community-path-service` (routes, formes de
   réponse, masquage, notes front).
+
+## Édition des métadonnées d'un forum — 2026-09-04 (complément direct, branche `feat/forum-edit-metadata`)
+
+Suite directe du masquage ci-dessus, sur demande explicite de l'utilisateur (voir
+`docs/architecture/identite-profils-acces.md`, section « Edition des metadonnees d'un forum ») :
+le RP doit pouvoir rééditer un forum après sa création, pas seulement le cacher.
+
+- **`PATCH /forums/:id`**, nouvelle route. Body : tous les champs déjà acceptés par `POST /forums`
+  (`title`, `description`, `level`, `difficulty`, `theme`, `competences`, `tags`, `allowedRoles`),
+  tous **optionnels** — seuls les champs fournis sont modifiés (`undefined` ⇒ inchangé, distinct
+  d'une valeur vide explicitement envoyée). Nouveau DTO `UpdateForumDto`, mêmes validateurs que
+  `CreateForumDto` par champ (`title`, si fourni, ne peut pas être vide).
+- **Réservé au rôle `responsable_pedagogique` dans son ensemble, pas au seul créateur** — même
+  principe que `POST /forums/:id/hide` : aucune vérification `createdById === actorId`, cohérent
+  avec « les forums sont un outil collectif de la fonction RP ». Nouvelle méthode
+  `ForumsService.updateForum(forumId, dto, actorRole)` (pas besoin de l'`actorId`, contrairement à
+  `hideForum` qui trace `hiddenByUserId`).
+- **Un forum caché (`isHidden: true`) reste éditable** — le masquage n'est jamais vérifié dans
+  `updateForum()`, seul le rôle de l'appelant l'est.
+- **`allowedRoles: []` explicitement fourni est normalisé en `null`** (ouvert à tous), même
+  normalisation qu'à la création.
+- **L'image d'illustration n'est pas concernée** — reste exclusivement gérée par
+  `POST /forums/:id/image`, non touchée par cette route.
+- Tests : `forums.service.spec.ts` (+6, `describe('updateForum()')`) et
+  `forums.controller.spec.ts` (+3, `describe('PATCH /forums/:id — updateForum()')`). 192 tests
+  passent (7 suites), `npm run build` (`nest build`) propre.
+- Contrat détaillé : `docs/routes.md`, section `## community-path-service`, body/réponse
+  `PATCH /forums/:id` documentés juste après le body de `POST /forums`.

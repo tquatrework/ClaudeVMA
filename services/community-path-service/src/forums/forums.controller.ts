@@ -35,6 +35,7 @@ import { CreateForumDto } from './dto/create-forum.dto';
 import { CreateForumCommentDto } from './dto/create-forum-comment.dto';
 import { CreateForumExclusionDto } from './dto/create-forum-exclusion.dto';
 import { UpdateForumCharterDto } from './dto/update-forum-charter.dto';
+import { UpdateForumDto } from './dto/update-forum.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -194,6 +195,31 @@ export class ForumsController {
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     return this.forumsService.getForum(forumId, currentUser.role);
+  }
+
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Éditer les métadonnées d\'un forum',
+    description:
+      'Réservé au rôle responsable pédagogique (RP), pas seulement au créateur du forum — même ' +
+      "principe que POST /forums/:id/hide. Porte sur titre, description, tags et allowedRoles ; " +
+      "l'image reste gérée par POST /forums/:id/image. Un forum caché (isHidden) reste éditable. " +
+      'Seuls les champs fournis sont modifiés ; mêmes règles de validation qu\'à la création.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiResponse({ status: 200, description: 'Forum mis à jour, entité complète renvoyée' })
+  @ApiResponse({ status: 400, description: 'Données invalides (ex. titre vide)' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant (réservé au RP)' })
+  @ApiResponse({ status: 404, description: 'Forum introuvable' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async updateForum(
+    @Param('id') forumId: string,
+    @Body() updateForumDto: UpdateForumDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.updateForum(forumId, updateForumDto, currentUser.role);
   }
 
   @Post(':id/hide')

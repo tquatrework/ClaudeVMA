@@ -471,3 +471,17 @@
      sujets plutot qu'un fil de commentaires direct, avec une page de detail de sujet en plus) et
      simplification de `ForumCreateForm` (retrait des 4 champs).
 
+- Affichage de l'auteur de chaque commentaire, demande le 2026-09-04 apres livraison de la structure
+  en sujets. **Aucun UUID ne doit etre affiche** (arbitrage du 2026-08-09, deja applique partout
+  ailleurs dans ce projet) : `community-path-service` doit resoudre `authorId` en prenom/nom aupres
+  de `profile-service`, meme mecanisme deja repris par `calendar-service`, `teacher-request-service`,
+  `video-session-service` et `dashboard-notification-service` — routes internes existantes
+  `GET /internal/profiles/:userId/display-name` (unitaire) et
+  `POST /internal/profiles/display-names` (par lot, a privilegier pour une liste de commentaires :
+  un seul appel groupe plutot qu'un appel par commentaire). Le nom resolu doit accompagner la
+  reponse de lecture des commentaires d'un sujet ; si le meme gap existe sur la liste des sujets
+  (auteur du sujet, c'est-a-dire de son premier message), le corriger dans le meme mouvement plutot
+  que de laisser une incoherence entre les deux ecrans — meme mecanisme, meme effort. Degradation
+  gracieuse si `profile-service` est injoignable (nom absent plutot que blocage de la lecture),
+  meme politique que les precedents cites.
+

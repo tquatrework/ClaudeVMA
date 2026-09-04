@@ -7,6 +7,21 @@
 
 ## Besoin courant
 
+Afficher l'auteur de chaque commentaire dans un sujet de forum, demandé le 2026-09-04. Aucun UUID
+à afficher (règle du projet) : `community-path-service` doit résoudre `authorId` en prénom/nom
+auprès de `profile-service`, même mécanisme déjà utilisé par plusieurs autres services
+(`GET /internal/profiles/:userId/display-name`, ou par lot
+`POST /internal/profiles/display-names`). Corriger dans le même mouvement l'auteur d'un sujet
+(son premier message) si le même gap existe. Arbitrage complet persisté dans
+`docs/architecture/identite-profils-acces.md` ("Affichage de l'auteur de chaque commentaire").
+
+Séquencement : `community-path-service` d'abord, `front-developper` ensuite (afficher le nom
+résolu sur chaque commentaire/sujet).
+
+Délégué le 2026-09-04 à `community-path-service`.
+
+---
+
 Structure en sujets (topics) des Forums, demandée le 2026-09-04, une fois le premier lot Forums
 entièrement livré. Deux volets. Arbitrage complet persisté dans
 `docs/architecture/identite-profils-acces.md` ("Structure en sujets (topics) des Forums").

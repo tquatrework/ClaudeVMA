@@ -1,14 +1,18 @@
 /**
- * useForumComments — fil de discussion d'un forum : lecture paginée (`GET /forums/:id/comments`,
- * du plus ancien au plus récent), publication (`POST`) et suppression réservée au RP (`DELETE`).
+ * useTopicComments — fil de discussion d'un sujet : lecture paginée
+ * (`GET /forums/:id/topics/:topicId/comments`, du plus ancien au plus récent), publication (`POST`)
+ * et suppression réservée au RP (`DELETE`).
+ *
+ * Remplace `useForumComments` (2026-09-04, structure en sujets) : un commentaire appartient
+ * désormais à un sujet, pas directement à un forum.
  */
 
 import { useEffect, useState } from 'react'
 import {
-  createForumComment,
-  deleteForumComment,
-  fetchForumComments,
-} from '../../api/forums'
+  createForumTopicComment,
+  deleteForumTopicComment,
+  fetchForumTopicComments,
+} from '../../api/forumTopics'
 import { getErrorMessage, readErrorPayload } from '../../utils/apiError'
 import {
   CHARTER_NOT_ACCEPTED_ERROR_CODE,
@@ -17,7 +21,7 @@ import {
 } from '../../types/forum'
 import { FORUM_LABELS } from '../../utils/forumLabels'
 
-export interface UseForumCommentsResult {
+export interface UseTopicCommentsResult {
   comments: ForumComment[]
   isLoading: boolean
   loadError: string | null
@@ -37,7 +41,10 @@ export interface UseForumCommentsResult {
   refetch: () => void
 }
 
-export function useForumComments(forumId: string | undefined): UseForumCommentsResult {
+export function useTopicComments(
+  forumId: string | undefined,
+  topicId: string | undefined,
+): UseTopicCommentsResult {
   const [comments, setComments] = useState<ForumComment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -53,13 +60,13 @@ export function useForumComments(forumId: string | undefined): UseForumCommentsR
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!forumId) return
+    if (!forumId || !topicId) return
 
     let isIgnored = false
     setIsLoading(true)
     setLoadError(null)
 
-    fetchForumComments(forumId, { page, limit: FORUM_COMMENTS_DEFAULT_LIMIT })
+    fetchForumTopicComments(forumId, topicId, { page, limit: FORUM_COMMENTS_DEFAULT_LIMIT })
       .then((commentsPage) => {
         if (isIgnored) return
         setComments(commentsPage.data)
@@ -77,16 +84,16 @@ export function useForumComments(forumId: string | undefined): UseForumCommentsR
     return () => {
       isIgnored = true
     }
-  }, [forumId, page, reloadToken])
+  }, [forumId, topicId, page, reloadToken])
 
   const postComment = async (content: string): Promise<boolean> => {
-    if (!forumId) return false
+    if (!forumId || !topicId) return false
     setIsPosting(true)
     setPostError(null)
     setCharterNotAccepted(false)
 
     try {
-      const createdComment = await createForumComment(forumId, { content })
+      const createdComment = await createForumTopicComment(forumId, topicId, { content })
       // La donnée appartient au hook, pas à un composant enfant : on l'insère directement plutôt
       // que de recharger la page courante (règle du chargement du 2026-08-10, point 3).
       setComments((previous) => [...previous, createdComment])
@@ -105,12 +112,12 @@ export function useForumComments(forumId: string | undefined): UseForumCommentsR
   }
 
   const deleteComment = async (commentId: string): Promise<void> => {
-    if (!forumId) return
+    if (!forumId || !topicId) return
     setDeletingCommentId(commentId)
     setDeleteError(null)
 
     try {
-      await deleteForumComment(forumId, commentId)
+      await deleteForumTopicComment(forumId, topicId, commentId)
       setComments((previous) => previous.filter((comment) => comment.id !== commentId))
     } catch (caughtError: unknown) {
       setDeleteError(getErrorMessage(caughtError, FORUM_LABELS.deleteCommentError))

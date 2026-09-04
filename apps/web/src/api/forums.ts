@@ -11,20 +11,22 @@
  * indépendantes de `community-path-service` — même principe que `tutorials.ts`/`exercises.ts`,
  * chacun son fichier plutôt qu'un `contentCatalog.ts` fourre-tout.
  *
+ * **Complément du 2026-09-04 (« Sujets (topics) »)** : les routes de sujets et de commentaires
+ * (`GET`/`POST /forums/:id/comments` n'existent plus, un commentaire appartient désormais à un
+ * sujet) sont extraites dans `src/api/forumTopics.ts` — ce fichier dépassait 300 lignes une fois
+ * ces routes ajoutées. Ce fichier-ci ne porte plus que le forum lui-même (CRUD, image, charte,
+ * exclusions).
+ *
  * Toutes les requêtes passent par apiClient (base /api/v1). Types dans `src/types/forum.ts`.
  */
 
 import apiClient from './client'
-import { FORUM_COMMENTS_DEFAULT_LIMIT } from '../types/forum'
 import type {
-  CreateForumCommentPayload,
   CreateForumExclusionPayload,
   CreateForumPayload,
   Forum,
   ForumCharter,
   ForumCharterAcceptance,
-  ForumComment,
-  ForumCommentsPage,
   ForumExclusion,
   ForumImageConstraints,
   UpdateForumPayload,
@@ -34,9 +36,6 @@ export type {
   Forum,
   CreateForumPayload,
   UpdateForumPayload,
-  ForumComment,
-  CreateForumCommentPayload,
-  ForumCommentsPage,
   ForumExclusion,
   CreateForumExclusionPayload,
   ForumCharter,
@@ -100,48 +99,6 @@ export async function hideForum(forumId: string): Promise<Forum> {
 export async function createForum(payload: CreateForumPayload): Promise<Forum> {
   const { data } = await apiClient.post<Forum>('/forums', payload)
   return data
-}
-
-/**
- * GET /forums/:id/comments
- * Commentaires du forum, du plus ancien au plus récent, paginés (`limit` max 100, refusé
- * explicitement au-delà). Une page au-delà de la dernière répond `200 {data: []}`, jamais 404.
- */
-export async function fetchForumComments(
-  forumId: string,
-  params: { page?: number; limit?: number } = {},
-): Promise<ForumCommentsPage> {
-  const { data } = await apiClient.get<ForumCommentsPage>(`/forums/${forumId}/comments`, {
-    params: {
-      page: params.page ?? 1,
-      limit: params.limit ?? FORUM_COMMENTS_DEFAULT_LIMIT,
-    },
-  })
-  return data
-}
-
-/**
- * POST /forums/:id/comments
- * Publie un commentaire, immédiatement visible (aucune modération a priori). Réservé aux rôles
- * autorisés sur ce forum, non exclus, ayant accepté la charte de bonne conduite — un `403` porte
- * alors un corps structuré distinctif (`code: "CHARTER_NOT_ACCEPTED"`), voir
- * `CHARTER_NOT_ACCEPTED_ERROR_CODE` dans `src/types/forum.ts`.
- */
-export async function createForumComment(
-  forumId: string,
-  payload: CreateForumCommentPayload,
-): Promise<ForumComment> {
-  const { data } = await apiClient.post<ForumComment>(`/forums/${forumId}/comments`, payload)
-  return data
-}
-
-/**
- * DELETE /forums/:id/comments/:commentId
- * Supprime un commentaire a posteriori. Réservé au responsable pédagogique — ni l'auteur, ni
- * l'AP, ni le TI. Suppression physique et définitive, `204` sans corps.
- */
-export async function deleteForumComment(forumId: string, commentId: string): Promise<void> {
-  await apiClient.delete(`/forums/${forumId}/comments/${commentId}`)
 }
 
 /**

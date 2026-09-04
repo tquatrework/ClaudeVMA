@@ -71,6 +71,7 @@ import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
 import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
 import ForumCatalogPage from './pages/ForumCatalogPage'
 import ForumDetailPage from './pages/ForumDetailPage'
+import ForumTopicDetailPage from './pages/ForumTopicDetailPage'
 import ForumModerationPanel from './pages/ForumModerationPanel'
 import ForumCharterEditorPage from './pages/ForumCharterEditorPage'
 import PathCatalogPage from './pages/PathCatalogPage'
@@ -903,6 +904,26 @@ export default function App() {
                 ]}
               >
                 <ForumDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/forums/:forumId/topics/:topicId"
+            element={
+              // Mêmes rôles que /community/forums/:forumId — le masquage réel (sujet non visible)
+              // est fait côté serveur (404, docs/routes.md § « Sujets (topics) »).
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
+                <ForumTopicDetailPage />
               </ProtectedRoute>
             }
           />

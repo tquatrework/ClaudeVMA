@@ -7,6 +7,10 @@
  * forum (pas seulement son créateur), un forum caché reste éditable. Dans les deux modes,
  * `allowedRoles` est envoyé comme l'état courant des cases cochées (vide = ouvert à tous, ce qui
  * normalise explicitement en `null` côté serveur en édition).
+ *
+ * `level`/`difficulty`/`theme`/`competences` retirés le 2026-09-04 (complément « Sujets (topics) »)
+ * — héritage du modèle générique de contenu, sans usage réel pour les Forums, colonnes supprimées
+ * côté serveur.
  */
 
 import React, { useState } from 'react'
@@ -31,10 +35,6 @@ export function ForumCreateForm({ forum, onCreated, onUpdated, onCancel }: Forum
 
   const [title, setTitle] = useState(forum?.title ?? '')
   const [description, setDescription] = useState(forum?.description ?? '')
-  const [level, setLevel] = useState(forum?.level ?? '')
-  const [difficulty, setDifficulty] = useState(forum?.difficulty ?? '')
-  const [theme, setTheme] = useState(forum?.theme ?? '')
-  const [competences, setCompetences] = useState(forum?.competences ?? '')
   const [tags, setTags] = useState(forum?.tags ?? '')
   const [selectedRoles, setSelectedRoles] = useState<ForumRestrictableRole[]>(forum?.allowedRoles ?? [])
 
@@ -57,10 +57,6 @@ export function ForumCreateForm({ forum, onCreated, onUpdated, onCancel }: Forum
         const updatedForum = await updateForum(forum.id, {
           title: title.trim(),
           description: description.trim() || undefined,
-          level: level.trim() || undefined,
-          difficulty: difficulty.trim() || undefined,
-          theme: theme.trim() || undefined,
-          competences: competences.trim() || undefined,
           tags: tags.trim() || undefined,
           allowedRoles: selectedRoles,
         })
@@ -69,10 +65,6 @@ export function ForumCreateForm({ forum, onCreated, onUpdated, onCancel }: Forum
         const createdForum = await createForum({
           title: title.trim(),
           description: description.trim() || undefined,
-          level: level.trim() || undefined,
-          difficulty: difficulty.trim() || undefined,
-          theme: theme.trim() || undefined,
-          competences: competences.trim() || undefined,
           tags: tags.trim() || undefined,
           allowedRoles: selectedRoles.length > 0 ? selectedRoles : undefined,
         })
@@ -127,61 +119,6 @@ export function ForumCreateForm({ forum, onCreated, onUpdated, onCancel }: Forum
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
             disabled={isSubmitting}
           />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="forum-level" className="block text-sm text-gray-700 mb-1">
-              Niveau
-            </label>
-            <input
-              id="forum-level"
-              type="text"
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <label htmlFor="forum-difficulty" className="block text-sm text-gray-700 mb-1">
-              Difficulté
-            </label>
-            <input
-              id="forum-difficulty"
-              type="text"
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <label htmlFor="forum-theme" className="block text-sm text-gray-700 mb-1">
-              Thème
-            </label>
-            <input
-              id="forum-theme"
-              type="text"
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <label htmlFor="forum-competences" className="block text-sm text-gray-700 mb-1">
-              Compétences travaillées
-            </label>
-            <input
-              id="forum-competences"
-              type="text"
-              value={competences}
-              onChange={(e) => setCompetences(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              disabled={isSubmitting}
-            />
-          </div>
         </div>
 
         <div>

@@ -2,6 +2,10 @@
  * Tests du transport HTTP des Forums (`src/api/forums.ts`) — contrat exact de
  * `docs/routes.md` § « community-path-service » (refonte du 2026-09-04).
  *
+ * Les routes de sujets et de commentaires (`/forums/:id/topics*`) sont testées dans
+ * `test/forumTopics.api.test.ts` (`src/api/forumTopics.ts`, extrait de ce module le 2026-09-04
+ * pour rester sous 300 lignes) — `POST`/`GET`/`DELETE /forums/:id/comments` n'existent plus.
+ *
  * Portée volontairement limitée : `apiClient` est simulé ici, ce fichier vérifie les chemins, les
  * paramètres et la forme du corps envoyé — pas ce qui part réellement sur le réseau.
  */
@@ -23,9 +27,6 @@ import {
   fetchForum,
   createForum,
   hideForum,
-  fetchForumComments,
-  createForumComment,
-  deleteForumComment,
   fetchForumCharter,
   updateForumCharter,
   fetchForumCharterAcceptance,
@@ -39,7 +40,6 @@ import {
 const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)
 const mockPatch = vi.mocked(apiClient.patch)
-const mockDelete = vi.mocked(apiClient.delete)
 
 const FORUM_ID = 'a1b2c3d4-0000-0000-0000-000000000001'
 
@@ -122,63 +122,6 @@ describe('createForum', () => {
     mockPost.mockRejectedValue({ response: { status: 403 } })
 
     await expect(createForum({ title: 'x' })).rejects.toMatchObject({ response: { status: 403 } })
-  })
-})
-
-describe('fetchForumComments', () => {
-  it('appelle GET /forums/:id/comments avec la pagination par défaut', async () => {
-    mockGet.mockResolvedValue({ data: { data: [], page: 1, limit: 20, total: 0, totalPages: 1 } })
-
-    await fetchForumComments(FORUM_ID)
-
-    expect(mockGet).toHaveBeenCalledWith(`/forums/${FORUM_ID}/comments`, {
-      params: { page: 1, limit: 20 },
-    })
-  })
-
-  it('transmet page/limit explicites', async () => {
-    mockGet.mockResolvedValue({ data: { data: [], page: 2, limit: 50, total: 0, totalPages: 3 } })
-
-    await fetchForumComments(FORUM_ID, { page: 2, limit: 50 })
-
-    expect(mockGet).toHaveBeenCalledWith(`/forums/${FORUM_ID}/comments`, {
-      params: { page: 2, limit: 50 },
-    })
-  })
-})
-
-describe('createForumComment', () => {
-  it('poste au chemin documenté', async () => {
-    mockPost.mockResolvedValue({ data: { id: 'c1', forumId: FORUM_ID, content: 'x' } })
-
-    await createForumComment(FORUM_ID, { content: 'Un commentaire' })
-
-    expect(mockPost).toHaveBeenCalledWith(`/forums/${FORUM_ID}/comments`, {
-      content: 'Un commentaire',
-    })
-  })
-
-  it('propage le corps structuré CHARTER_NOT_ACCEPTED', async () => {
-    mockPost.mockRejectedValue({
-      response: {
-        status: 403,
-        data: { statusCode: 403, code: 'CHARTER_NOT_ACCEPTED', message: 'x' },
-      },
-    })
-
-    await expect(createForumComment(FORUM_ID, { content: 'x' })).rejects.toMatchObject({
-      response: { data: { code: 'CHARTER_NOT_ACCEPTED' } },
-    })
-  })
-})
-
-describe('deleteForumComment', () => {
-  it('appelle DELETE /forums/:id/comments/:commentId', async () => {
-    mockDelete.mockResolvedValue({ status: 204 })
-
-    await deleteForumComment(FORUM_ID, 'comment-1')
-
-    expect(mockDelete).toHaveBeenCalledWith(`/forums/${FORUM_ID}/comments/comment-1`)
   })
 })
 

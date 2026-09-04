@@ -8,17 +8,28 @@
  * `src/api/communityPath.ts`, dont les exports `Forum`/`ForumStatus`/`CreateForumPayload` sont
  * retirés au profit de ce fichier.
  *
- * Points structurants du nouveau contrat :
+ * **Changement structurel du 2026-09-04 (complément « Sujets (topics) »)** : un forum n'est plus
+ * une discussion plate, il contient des sujets (`ForumTopic`). Un commentaire (`ForumComment`)
+ * appartient désormais à un sujet (`topicId`), plus à un forum directement. `level`/`difficulty`/
+ * `theme`/`competences` sont retirés du modèle `Forum` (colonnes supprimées côté serveur, héritage
+ * du modèle générique de contenu sans usage réel pour les Forums).
+ *
+ * Points structurants du contrat actuel :
  * - Seul le RP crée un forum ; il est visible dès sa création, aucun statut de publication.
  * - Un forum est ouvert à tous par défaut, ou restreint à une liste de rôles (`allowedRoles`).
  *   Un rôle non autorisé ne doit jamais voir le forum exister (404 partout : liste, détail, image,
- *   commentaires) — jamais un 403 qui révélerait son existence.
+ *   sujets, commentaires) — jamais un 403 qui révélerait son existence.
+ * - N'importe quel membre du forum peut créer un sujet (pas réservé au RP), sous réserve d'avoir
+ *   accès au forum et d'avoir accepté la charte de bonne conduite.
+ * - Un sujet créé par un membre part `pending_validation` et n'est visible qu'à son auteur et aux
+ *   administrateurs tant qu'un RP ne l'a pas validé (`validated`) ou refusé (`rejected`). Seul le
+ *   sujet système « Sujet général » échappe à ce flux (déjà `validated`, `isDefault: true`).
  * - Une charte de bonne conduite, unique et globale (pas de versionnage), doit être acceptée avant
- *   de publier un commentaire — pas avant de lire.
+ *   de créer un sujet ou de publier un commentaire — pas avant de lire.
  * - Suppression d'un commentaire réservée au RP.
- * - Depuis le 2026-09-04 (complément) : un RP peut cacher un forum (`isHidden`), invisible ensuite
- *   à tout le monde sauf lui. Aucune route de réouverture — `GET /forums?mine=true` est l'unique
- *   moyen de retrouver ses forums cachés.
+ * - Un RP peut cacher un forum (`isHidden`), invisible ensuite à tout le monde sauf lui. Aucune
+ *   route de réouverture — `GET /forums?mine=true` est l'unique moyen de retrouver ses forums
+ *   cachés.
  */
 
 /** Les 4 seules valeurs acceptées pour `allowedRoles` — jamais les rôles administratifs, qui
@@ -36,10 +47,6 @@ export interface Forum {
   id: string
   title: string
   description: string | null
-  level: string | null
-  difficulty: string | null
-  theme: string | null
-  competences: string | null
   tags: string | null
   /** `null` ou tableau vide = ouvert à tout compte connecté. */
   allowedRoles: ForumRestrictableRole[] | null
@@ -63,10 +70,6 @@ export interface Forum {
 export interface CreateForumPayload {
   title: string
   description?: string
-  level?: string
-  difficulty?: string
-  theme?: string
-  competences?: string
   tags?: string
   allowedRoles?: ForumRestrictableRole[]
 }
@@ -79,17 +82,71 @@ export interface CreateForumPayload {
 export interface UpdateForumPayload {
   title?: string
   description?: string
-  level?: string
-  difficulty?: string
-  theme?: string
-  competences?: string
   tags?: string
   allowedRoles?: ForumRestrictableRole[]
 }
 
-export interface ForumComment {
+// ─── Sujets (topics) ────────────────────────────────────────────────────────────
+
+export type ForumTopicStatus = 'pending_validation' | 'validated' | 'rejected'
+
+export interface ForumTopic {
   id: string
   forumId: string
+  title: string
+  authorId: string
+  authorRole: string
+  status: ForumTopicStatus
+  /** `true` uniquement pour le sujet système « Sujet général », créé automatiquement à la création
+   * du forum, déjà `validated`, jamais soumis au flux de validation. */
+  isDefault: boolean
+  validatedByUserId: string | null
+  validatedAt: string | null
+  rejectedByUserId: string | null
+  rejectedAt: string | null
+  rejectionReason: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateForumTopicPayload {
+  title: string
+  /** Devient le tout premier `ForumComment` du sujet — pas de champ de contenu séparé sur le sujet
+   * lui-même. */
+  content: string
+}
+
+/** Réponse de `POST /forums/:id/topics` — le sujet créé, enrichi du premier commentaire tout juste
+ * créé (évite un second appel pour l'afficher immédiatement). */
+export interface CreateForumTopicResponse extends ForumTopic {
+  firstComment: ForumComment
+}
+
+/** Réponse paginée de `GET /forums/:id/topics`. */
+export interface ForumTopicsPage {
+  data: ForumTopic[]
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
+export const FORUM_TOPICS_DEFAULT_LIMIT = 20
+export const FORUM_TOPICS_MAX_LIMIT = 100
+
+/** Body de `POST /forums/:id/topics/:topicId/decision` — réservé au RP, sans scoping AP. */
+export interface ForumTopicDecisionPayload {
+  decision: 'validated' | 'rejected'
+  reason?: string
+}
+
+// ─── Commentaires (au sein d'un sujet) ─────────────────────────────────────────
+
+export interface ForumComment {
+  id: string
+  /** Un commentaire appartient à un sujet, plus directement à un forum (`forumId` retiré le
+   * 2026-09-04). */
+  topicId: string
   authorId: string
   authorRole: string
   content: string
@@ -100,7 +157,7 @@ export interface CreateForumCommentPayload {
   content: string
 }
 
-/** Réponse paginée de `GET /forums/:id/comments` — du plus ancien au plus récent. */
+/** Réponse paginée de `GET /forums/:id/topics/:topicId/comments` — du plus ancien au plus récent. */
 export interface ForumCommentsPage {
   data: ForumComment[]
   page: number
@@ -146,6 +203,6 @@ export interface ForumImageConstraints {
   allowedMimeTypes: string[]
 }
 
-/** Corps structuré distinctif d'un `403` de `POST /forums/:id/comments` faute de charte acceptée —
- * à différencier du `403` d'exclusion, qui ne porte pas de champ `code`. */
+/** Corps structuré distinctif d'un `403` faute de charte acceptée (création de sujet ou de
+ * commentaire) — à différencier du `403` d'exclusion, qui ne porte pas de champ `code`. */
 export const CHARTER_NOT_ACCEPTED_ERROR_CODE = 'CHARTER_NOT_ACCEPTED'

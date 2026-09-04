@@ -7,6 +7,33 @@
 
 ## Besoin courant
 
+Structure en sujets (topics) des Forums, demandée le 2026-09-04, une fois le premier lot Forums
+entièrement livré. Deux volets. Arbitrage complet persisté dans
+`docs/architecture/identite-profils-acces.md` ("Structure en sujets (topics) des Forums").
+
+**Volet mineur** : retirer niveau/difficulté/compétences/thème de la création/édition d'un forum
+(héritage du modèle générique, sans usage réel ici) — DTO et colonnes en base, pas seulement caché
+côté front.
+
+**Volet majeur, changement structurel** : un forum n'est plus une discussion plate, il contient des
+sujets. N'importe quel membre du forum peut créer un sujet (titre + premier message = le tout
+premier post du sujet), sous réserve d'avoir accès au forum et d'avoir accepté la charte. Un sujet
+doit être validé par un RP avant d'être visible aux autres membres (pending_validation → validated,
+même discipline de masquage que le reste du domaine). Un sujet "Sujet général" est créé
+automatiquement et déjà validé à la création de chaque forum — **y compris pour les forums déjà
+existants en production**, à rattraper. Les commentaires existants doivent être migrés vers ce
+sujet par défaut, sans perte. Les anciennes routes `POST`/`GET /forums/:id/comments` n'ont plus de
+sens telles quelles, à retirer/rediriger proprement.
+
+Séquencement : `community-path-service` d'abord (retrait des 4 champs, modèle Sujet, migration des
+forums/commentaires existants, nouvelles routes), `front-developper` ensuite (refonte de
+`ForumDetailPage` en liste de sujets + page de détail de sujet, simplification de
+`ForumCreateForm`).
+
+Délégué le 2026-09-04 à `community-path-service`.
+
+---
+
 Texte réel de la charte de bonne conduite des forums, fourni par l'utilisateur le 2026-09-04 —
 ferme le dernier point ouvert du chantier Forums. Persisté dans `docs/doc-interne/charte
 d'utilisation des forums` (PR #242, mergée). Un premier brouillon promettait un dispositif de

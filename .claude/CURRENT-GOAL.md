@@ -89,6 +89,35 @@ l'identifiant qu'il a saisi, un simple repli sur la valeur d'entrée peut suffir
 délégué — en attente du retour de `profile-service` (points 1 et 2) pour regrouper les
 correctifs `communication-service` en une seule délégation plutôt que deux.
 
+**Points 1 et 2 traités (PR #260, mergée) — conflit de merge sur `docs/routes.md` avec la PR
+#258/#259, résolu par l'orchestrateur (les deux jeux d'informations réconciliés, rien perdu).**
+`profile-service` réplique désormais le pattern outbox + `XADD` déjà utilisé par
+`teacher-request-service` (table `domain_events`, balayeur toutes les 2s) ; `TeacherLinkedToStudent`,
+`StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` (+ `Unlinked` existants) sont désormais
+publiés sur `visiomath:events`. `GET /internal/profiles/search-by-name` construite, contrat
+conforme à ce qu'attendait `communication-service`. 730/730 tests unitaires, 368/372 e2e verts (4
+échecs préexistants sans rapport). **Point ouvert signalé, non bloquant** : `AnimatorTeacherLink`
+(AP↔formateur) n'a structurellement aucune route de rupture côté `profile-service` — le pendant
+`Unlinked` correspondant ne peut donc pas exister ; sans impact aujourd'hui car
+`RelationEventConsumerService` ignore déjà ce pendant par choix.
+
+**Vérifié par l'orchestrateur après merge** (même limite d'accès `.env` que pour
+`communication-service`) : `docker compose up -d --build profile-service` depuis `master`,
+conteneur sain, route `GET /internal/profiles/search-by-name` mappée au démarrage. Testée
+directement sur le réseau Docker interne (`wget` depuis le conteneur `communication-service`,
+`.env` de `profile-service` inutile pour ce test) : `400` sans `q`, `401` sans
+`X-Internal-Secret`, `200` avec résultats réels incluant `loginIdentifier`, plafonnés à 20 —
+conforme au contrat documenté. Publication d'événements vérifiée de bout en bout : une ligne
+sonde insérée directement dans `domain_events` est apparue sur le flux Redis `visiomath:events`
+en ~4 secondes (balayage du `EventPublisherService` confirmé actif), `published_at` renseigné en
+base — la mécanique complète outbox→Redis fonctionne réellement, pas seulement en test unitaire.
+
+**Reste à faire** : petit correctif côté `communication-service`
+(`IdentityAccessClient`/résultat de recherche par identifiant exact) pour ne pas afficher un
+identifiant manquant en confirmation avant envoi d'une demande de contact (conséquence du point 3
+ci-dessus). Puis `dashboard-notification-service` (nouveaux types d'événements Contacts) et
+`front-developper` (écrans) restent à déléguer.
+
 ---
 
 Afficher l'auteur de chaque commentaire dans un sujet de forum, demandé le 2026-09-04. Aucun UUID

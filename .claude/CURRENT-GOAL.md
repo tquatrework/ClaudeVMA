@@ -58,6 +58,28 @@ fil de discussion (détail + commentaires, désormais lisibles), gate charte ava
 bouton de suppression de commentaire côté RP. Le texte réel de la charte n'est toujours pas fourni
 par l'utilisateur — ne pas bloquer dessus, le mécanisme fonctionne indépendamment du contenu.
 
+**`front-developper` mergé (PR #232), déployé, site vérifié `200` (y compris `/community/forums`).**
+Investigation préalable confirmée nécessaire : l'ancien fil de discussion de `ForumDetailPage` était
+**purement local**, rien n'était jamais persisté ni relu — corrigé en branchant les nouvelles routes
+détail/commentaires. Les 3 écrans (`ForumCatalogPage`, `ForumDetailPage`, `ForumModerationPanel`)
+reconstruits sur le contrat réel : création RP seule, restriction par rôle avec masquage 404, image
+d'illustration, gate charte obligatoire avant de commenter, commentaires paginés persistés,
+suppression réservée au RP, panneau de modération recentré RP. `tsc`/build propres, 55 tests dédiés
+verts, 7 échecs pré-existants inchangés (comparaison `git stash`). Mergé et déployé sur confirmation
+explicite de l'utilisateur ("va jusqu'au merge inclus"), sans complément demandé sur les deux gaps
+signalés (pas de `PATCH /forums/:id`, pas d'écran d'édition du texte de la charte) ni sur le
+périmètre AF+TI du bypass — laissés tels quels pour l'instant, à reprendre si l'utilisateur le
+demande.
+
+**Chantier développement réel des Forums (backend + front) clos.** Points restés ouverts,
+volontairement non traités (l'utilisateur a choisi d'avancer sans trancher chaque point) :
+1. Pas de route d'édition d'un forum après création (seule l'image est remplaçable) — signalé,
+   non construit.
+2. Pas d'écran pour que le RP/TI écrive le texte de la charte — deviendra nécessaire dès que
+   l'utilisateur fournira le texte réel.
+3. Le bypass "accès illimité à tout forum" reste ouvert à RP+AF+TI (décision de l'agent backend),
+   au lieu du RP seul explicitement garanti par l'arbitrage — non confirmé par l'utilisateur.
+
 ---
 
 Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :

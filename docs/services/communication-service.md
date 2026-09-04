@@ -214,3 +214,153 @@ test/
   actuellement pas qui a changé le statut ni ne publie d'événement d'audit.
   Aucune décision n'a été prise ici : à arbitrer avec l'orchestrateur/service
   d'observabilité plutôt que de l'ajouter unilatéralement.
+
+## Session — Contacts et messagerie (2026-09-04)
+
+Chantier complet : `docs/architecture/contacts-messagerie.md`. Remplace l'ancien modèle
+`ContactPolicy` (précontact/mandatory/visibility, jamais réellement utilisé en production — 0
+ligne dans `contact_policies`, `POST /internal/sync-contacts` jamais appelée) par une entité
+`Contact` propre à ce service, avec un cycle de vie de demande/acceptation/refus, et rend enfin la
+messagerie opérationnelle (0 conversation, 0 message en production avant ce chantier).
+
+### Arborescence ajoutée/modifiée
+
+```
+src/
+  contact/
+    entities/
+      contact.entity.ts              [ajouté] Contact bidirectionnel, canonicalPair(userA,userB),
+                                      status active/broken, origin default/request, non destructif
+                                      (brokenAt/brokenBy sur la même ligne). Index unique partiel
+                                      (userAId, userBId) WHERE status='active'.
+      contact-request.entity.ts      [ajouté] Journal append-only des demandes dirigées
+                                      (requesterId -> targetId) — sert aussi de journal de refus
+                                      pour la pénalité progressive (pas de table séparée).
+      contact-policy.entity.ts       [supprimé] modèle abandonné.
+    clients/
+      profile-service.client.ts      [ajouté] getDisplayName(s), searchByName (NON encore
+                                      disponible côté profile-service, voir docs/routes.md),
+                                      getFinanceOwners, getTeachers — tout en HTTP interne
+                                      (X-Internal-Secret), fetch natif Node 20, pas de nouvelle
+                                      dépendance HTTP.
+      identity-access.client.ts      [ajouté] findByLoginIdentifier.
+    contact.service.ts               [réécrit] canonicalPair, isActiveContact,
+                                      findInactiveContacts (batch anti-N+1, réutilisé par
+                                      ConversationService), listActiveContacts, ensureActiveContact
+                                      (idempotent, retry sur violation 23505), breakContact
+                                      (idempotent, 404 masquant si l'acteur n'est pas partie).
+    contact-request.service.ts       [ajouté] recherche composite, createRequest/accept/decline,
+                                      pénalité de refus (cooldown 1 mois, blocage définitif au
+                                      3e refus, journal = les lignes ContactRequest elles-mêmes).
+    relation-event-consumer.service.ts [ajouté] consommateur Redis `visiomath:events`, groupe
+                                      `communication-service`, XGROUP/XREADGROUP/XACK + XAUTOCLAIM
+                                      (reclaim 60s d'inactivité, toutes les 30s), dédup par eventId
+                                      (processed_events). Dérive les contacts par défaut. Écrit et
+                                      prêt, mais INACTIF tant que profile-service ne publie pas ces
+                                      événements (voir docs/routes.md).
+    contact.controller.ts            [réécrit] /contacts, /contacts/:id/break,
+                                      /contacts/search/*, /contacts/requests/*.
+    contact.module.ts                [réécrit] importe EventsModule (pas l'inverse, évite un cycle).
+    dto/                             [réécrit] contact-response, contact-request-response,
+                                      create-contact-request, search-result. sync-contacts.dto.ts
+                                      et update-visibility.dto.ts supprimés (modèle abandonné).
+  events/                            [ajouté, nouveau module @Global]
+    entities/domain-event.entity.ts      outbox transactionnel (mêmes conventions que
+                                          teacher-request-service : eventName/aggregateType/
+                                          aggregateId/correlationId/payload jsonb/occurredAt/publishedAt).
+    entities/processed-event.entity.ts   dédup consommateur (event_id PK).
+    redis-client.provider.ts             ioredis, REDIS_CLIENT token, maxRetriesPerRequest borné
+                                          (3, pas null) + lazyConnect — une indisponibilité Redis
+                                          ne doit jamais bloquer le démarrage de l'app.
+    event-publisher.service.ts           écrit l'outbox (record(), dans la transaction appelante),
+                                          boucle de publication (XADD toutes les 2s, 20 par lot).
+    events.module.ts                     pure infrastructure, ne connaît pas Contact/ContactRequest.
+  internal/                          [supprimé] plus aucune route /internal/* exposée par ce
+                                      service (POST /internal/sync-contacts retirée).
+  conversation/conversation.service.ts [modifié] sendMessage() vérifie désormais un contact ACTIF
+                                      à l'envoi (pas seulement à la création de la conversation),
+                                      sauf pour les threads d'incident (isIncident: true).
+  migrations/
+    1793900000000-ContactsAndMessagingRefonte.ts [ajouté] DROP contact_policies (vide),
+                                      CREATE contacts/contact_requests/domain_events/processed_events.
+  data-source.ts                     [ajouté] DataSource pour le CLI TypeORM (migration:generate/run/show).
+  app.module.ts                      [modifié] migrations + migrationsRun: true (aucune migration
+                                      n'existait avant ce chantier dans ce service).
+
+test/
+  e2e/contact.e2e-spec.ts            [réécrit] recherche, demandes, accept/decline, break,
+                                      pénalité de refus, messagerie conditionnée — 
+                                      ProfileServiceClient/IdentityAccessClient stubbés via
+                                      overrideProvider (Nest DI), pas d'appel réseau.
+  e2e/communication.e2e-spec.ts      [modifié] seed via getContactRepository (Contact direct) au
+                                      lieu de /internal/sync-contacts.
+  e2e/helpers/app.helper.ts          [modifié] createTestApp(overrideProviders?) ; DROP SCHEMA
+                                      exécuté AVANT app.init() via un client pg brut (nécessaire
+                                      depuis migrationsRun: true, sinon collision avec le schéma
+                                      laissé par le fichier de test précédent) ; synchronize()
+                                      complète ensuite les entités encore sans migration
+                                      (conversations/messages/incident_threads).
+  unit/contact/contact.service.spec.ts [réécrit] nouvelle API.
+```
+
+### Décisions techniques prises
+
+- **`Contact` remplace `ContactPolicy`** plutôt que de coexister : l'ancien modèle n'a jamais eu
+  de données réelles en production (0 ligne), la bascule est propre — pas de migration de données.
+- **Une ligne par paire par période active**, jamais réactivée en place : `ensureActiveContact`
+  insère toujours une nouvelle ligne quand aucune ligne ACTIVE n'existe pour la paire (même si des
+  lignes `broken` existent) — même convention que `finance-owner-student`/`teacher-student` côté
+  `profile-service` (rupture non destructive, ré-affectation = nouvelle ligne). Un index unique
+  partiel `(userAId, userBId) WHERE status='active'` est l'arbitre final contre les races.
+- **Le journal de refus est `ContactRequest` lui-même**, pas une table séparée : chaque demande
+  refusée reste une ligne `status='declined'`, jamais réécrite — compter/scanner ces lignes pour
+  une paire dirigée donne directement le cooldown et le seuil de blocage définitif, sans dupliquer
+  la donnée dans un journal parallèle.
+- **Recherche composite hébergée côté `communication-service`**, pas côté `profile-service` : ce
+  service expose ses propres routes publiques (`GET /contacts/search/*`, 🔒 tout rôle) qui
+  appellent en interne `identity-access-service` et `profile-service` — cohérent avec le fait que
+  c'est `communication-service` qui a besoin de composer les deux, pas l'inverse.
+- **EventsModule (`@Global`) ne connaît pas Contact** : évite un cycle d'import entre le module
+  d'infrastructure générique (outbox, Redis) et le module métier qui l'utilise à la fois pour
+  publier (accept/decline/create) et pour consommer (relations métier).
+- **Bornage des appels Redis** (`maxRetriesPerRequest: 3`, `lazyConnect: true`,
+  `onModuleInit` non bloquant côté consommateur) : une indisponibilité Redis ne doit jamais
+  empêcher le service de démarrer et de servir HTTP — trouvé en marge (le harnais e2e de ce
+  service ne fait tourner aucun Redis).
+- **`onModuleDestroy` ferme la connexion Redis partagée** : sans cela, la stratégie de reconnexion
+  indéfinie par défaut d'ioredis empêchait le processus Jest de se terminer proprement après les
+  tests e2e — trouvé en marge, corrigé.
+- **`POST /contacts/:id/break`, `/requests/:id/accept`, `/requests/:id/decline` avec
+  `@HttpCode(200)`** explicite : NestJS renvoie `201` par défaut sur un `POST`, ce n'était pas le
+  contrat documenté — trouvé par les tests e2e eux-mêmes, corrigé.
+
+### Points en suspens — blocages à lever par d'autres services
+
+1. **`profile-service` ne publie aucun événement de relation sur `visiomath:events`.** Vérifié
+   empiriquement le 2026-09-04 (`XRANGE` du stream réel) : `TeacherLinkedToStudent`,
+   `StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` n'y figurent jamais — seuls
+   `teacher-request-service`, `calendar-service` et `learning-activity-service` publient
+   aujourd'hui. `profile-service` doit répliquer le pattern outbox + `XADD` déjà construit par
+   `teacher-request-service` (arbitrage du 2026-08-12). Tant que ce n'est pas fait, les contacts
+   par défaut (AP↔formateur, élève↔parent, élève↔formateur, parent↔formateur dérivé) ne se créent
+   jamais — le consommateur de `communication-service` est prêt et attend.
+2. **Aucune route `GET /internal/profiles/search-by-name` n'existe côté `profile-service`.**
+   Contrat attendu documenté dans `docs/routes.md` (section communication-service) : à construire
+   pour que `GET /contacts/search/by-name` cesse de renvoyer une `ServiceUnavailableException`.
+3. **Format exact de `GET /internal/accounts/by-login-identifier` (identity-access-service) non
+   confirmé empiriquement** — `IdentityAccessClient` suppose `{userId, loginIdentifier, role}` par
+   analogie avec `GET /internal/accounts/by-user-id/:userId`, à vérifier/corriger avec
+   `identity-access-service`.
+4. **Payload exact des événements de relation, une fois publiés par `profile-service`, non
+   vérifié empiriquement** (`teacherId`/`studentId`, `financeOwnerId`/`studentId`,
+   `animatorId`/`teacherId` supposés par analogie avec les corps de réponse REST correspondants) —
+   `RelationEventConsumerService.dispatch()` est écrit défensivement (ignore un champ manquant
+   plutôt que de planter) mais devra être revérifié contre le payload réel dès que
+   `profile-service` publiera.
+5. **Migration TypeORM ajoutée à ce service pour la première fois** (aucune n'existait avant ce
+   chantier). Elle ne couvre que `contacts`/`contact_requests`/`domain_events`/`processed_events` ;
+   `conversations`/`messages`/`incident_threads` restent créées par `synchronize()` en test et
+   probablement par un état de fait équivalent en production (`NODE_ENV` réel de la pile —
+   voir le point ouvert `NODE_ENV=development` dans `docs/architecture/rail-rp-et-points-ouverts.md`,
+   qui s'applique potentiellement à ce service aussi, non vérifié spécifiquement ici) — combler ces
+   trois tables par une migration dédiée reste un chantier séparé, hors périmètre de cette session.

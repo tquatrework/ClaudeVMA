@@ -296,6 +296,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Chantier Contacts et messagerie (2026-09-04, docs/architecture/contacts-messagerie.md) :
+      # recherche composite (loginIdentifier/nom) et resolution de noms d'affichage.
+      PROFILE_SERVICE_URL: http://profile-service:3002
+      IDENTITY_ACCESS_SERVICE_URL: http://identity-access-service:3001
       PORT: 3004
     depends_on:
       postgres:

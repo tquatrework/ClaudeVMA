@@ -1,159 +1,150 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { ContactService } from '../../../src/contact/contact.service';
-import { ContactPolicy } from '../../../src/contact/entities/contact-policy.entity';
+import { Contact } from '../../../src/contact/entities/contact.entity';
 
 type MockRepository = {
   find: jest.Mock;
   findOne: jest.Mock;
+  count: jest.Mock;
   save: jest.Mock;
   create: jest.Mock;
+  createQueryBuilder: jest.Mock;
 };
 
 function makeMockRepository(): MockRepository {
   return {
     find: jest.fn(),
     findOne: jest.fn(),
+    count: jest.fn(),
     save: jest.fn((entity) => Promise.resolve(entity)),
     create: jest.fn((entity) => entity),
+    createQueryBuilder: jest.fn(),
   };
 }
 
 describe('ContactService', () => {
   let service: ContactService;
   let repository: MockRepository;
-  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     repository = makeMockRepository();
-    dataSource = {
-      transaction: jest.fn(async (callback: (manager: unknown) => unknown) =>
-        callback({ getRepository: () => repository }),
-      ),
-    };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ContactService,
-        { provide: getRepositoryToken(ContactPolicy), useValue: repository },
-        { provide: DataSource, useValue: dataSource },
-      ],
+      providers: [ContactService, { provide: getRepositoryToken(Contact), useValue: repository }],
     }).compile();
 
     service = module.get(ContactService);
   });
 
-  describe('findUnauthorizedContacts (COM-FB-002 — évite le N+1)', () => {
-    it('retourne un tableau vide sans requête si contactIds est vide', async () => {
-      const result = await service.findUnauthorizedContacts('user-1', []);
-      expect(result).toEqual([]);
-      expect(repository.find).not.toHaveBeenCalled();
+  describe('canonicalPair', () => {
+    it('is order-independent — same pair regardless of argument order', () => {
+      expect(service.canonicalPair('user-a', 'user-b')).toEqual(service.canonicalPair('user-b', 'user-a'));
+    });
+  });
+
+  describe('isActiveContact', () => {
+    it('true when an active row exists for the canonical pair', async () => {
+      repository.count.mockResolvedValue(1);
+      await expect(service.isActiveContact('user-1', 'user-2')).resolves.toBe(true);
     });
 
-    it('retourne les contacts non autorisés en une seule requête batch', async () => {
-      repository.find.mockResolvedValue([
-        { contactId: 'contact-authorized', expiresAt: null },
-      ]);
+    it('false when no active row exists', async () => {
+      repository.count.mockResolvedValue(0);
+      await expect(service.isActiveContact('user-1', 'user-2')).resolves.toBe(false);
+    });
+  });
 
-      const result = await service.findUnauthorizedContacts('user-1', [
-        'contact-authorized',
-        'contact-missing',
-      ]);
+  describe('findInactiveContacts (avoids N+1)', () => {
+    it('returns an empty array without querying if otherIds is empty', async () => {
+      const result = await service.findInactiveContacts('user-1', []);
+      expect(result).toEqual([]);
+      expect(repository.createQueryBuilder).not.toHaveBeenCalled();
+    });
 
-      expect(repository.find).toHaveBeenCalledTimes(1);
+    it('returns the subset without an active contact, in a single batch query', async () => {
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([{ userAId: 'user-1', userBId: 'contact-authorized' }]),
+      };
+      repository.createQueryBuilder.mockReturnValue(qb);
+
+      const result = await service.findInactiveContacts('user-1', ['contact-authorized', 'contact-missing']);
+
+      expect(repository.createQueryBuilder).toHaveBeenCalledTimes(1);
       expect(result).toEqual(['contact-missing']);
     });
-
-    it('traite un contact expiré comme non autorisé', async () => {
-      const past = new Date(Date.now() - 1000 * 60 * 60);
-      repository.find.mockResolvedValue([{ contactId: 'contact-expired', expiresAt: past }]);
-
-      const result = await service.findUnauthorizedContacts('user-1', ['contact-expired']);
-
-      expect(result).toEqual(['contact-expired']);
-    });
   });
 
-  describe('activateContact', () => {
-    it('active un precontact existant', async () => {
-      const actor = { id: 'user-1' } as any;
-      repository.findOne.mockResolvedValue({
-        id: 'contact-1',
-        userId: 'user-1',
-        status: 'precontact',
-        active: false,
-      });
+  describe('ensureActiveContact', () => {
+    it('is a no-op if an active row already exists for the pair', async () => {
+      const existing = { id: 'contact-1', userAId: 'user-1', userBId: 'user-2', status: 'active' };
+      repository.findOne.mockResolvedValue(existing);
 
-      const result = await service.activateContact(actor, 'contact-1');
+      const result = await service.ensureActiveContact('user-1', 'user-2', 'default');
 
-      expect(result.status).toBe('active');
-      expect(result.active).toBe(true);
-      expect(repository.save).toHaveBeenCalled();
-    });
-
-    it("échoue avec NotFoundException si le contact n'appartient pas à l'acteur", async () => {
-      const actor = { id: 'user-1' } as any;
-      repository.findOne.mockResolvedValue(null);
-
-      await expect(service.activateContact(actor, 'contact-unknown')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('removeContact', () => {
-    it('retire un contact non obligatoire', async () => {
-      const actor = { id: 'user-1' } as any;
-      repository.findOne.mockResolvedValue({
-        id: 'contact-1',
-        userId: 'user-1',
-        mandatory: false,
-        active: true,
-      });
-
-      await service.removeContact(actor, 'contact-1');
-
-      expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
-    });
-
-    it('refuse de retirer un contact obligatoire (COM-BR-010)', async () => {
-      const actor = { id: 'user-1' } as any;
-      repository.findOne.mockResolvedValue({
-        id: 'contact-1',
-        userId: 'user-1',
-        mandatory: true,
-        active: true,
-      });
-
-      await expect(service.removeContact(actor, 'contact-1')).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      expect(result).toBe(existing);
       expect(repository.save).not.toHaveBeenCalled();
     });
 
-    it('échoue avec NotFoundException si le contact est introuvable', async () => {
-      const actor = { id: 'user-1' } as any;
+    it('creates a new active row when none exists', async () => {
       repository.findOne.mockResolvedValue(null);
 
-      await expect(service.removeContact(actor, 'contact-unknown')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      const result = await service.ensureActiveContact('user-1', 'user-2', 'default');
+
+      expect(repository.save).toHaveBeenCalled();
+      expect(result.status).toBe('active');
+      expect(result.origin).toBe('default');
     });
   });
 
-  describe('syncContacts', () => {
-    it('exécute la synchronisation dans une transaction unique', async () => {
+  describe('breakContact', () => {
+    it('breaks an active contact the actor is part of', async () => {
+      const actor = { id: 'user-1' } as any;
+      repository.findOne.mockResolvedValue({
+        id: 'contact-1',
+        userAId: 'user-1',
+        userBId: 'user-2',
+        status: 'active',
+      });
+
+      const result = await service.breakContact(actor, 'contact-1');
+
+      expect(result.status).toBe('broken');
+      expect(result.brokenBy).toBe('user-1');
+      expect(repository.save).toHaveBeenCalled();
+    });
+
+    it('is idempotent on an already-broken contact', async () => {
+      const actor = { id: 'user-1' } as any;
+      const broken = { id: 'contact-1', userAId: 'user-1', userBId: 'user-2', status: 'broken' };
+      repository.findOne.mockResolvedValue(broken);
+
+      const result = await service.breakContact(actor, 'contact-1');
+
+      expect(result).toBe(broken);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException (masking, never 403) if the actor is not part of the contact', async () => {
+      const actor = { id: 'user-3' } as any;
+      repository.findOne.mockResolvedValue({
+        id: 'contact-1',
+        userAId: 'user-1',
+        userBId: 'user-2',
+        status: 'active',
+      });
+
+      await expect(service.breakContact(actor, 'contact-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('throws NotFoundException if the contact does not exist', async () => {
+      const actor = { id: 'user-1' } as any;
       repository.findOne.mockResolvedValue(null);
 
-      await service.syncContacts({
-        userId: 'user-1',
-        contacts: [{ contactId: 'contact-1' }, { contactId: 'contact-2' }],
-      } as any);
-
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-      expect(repository.save).toHaveBeenCalledTimes(2);
+      await expect(service.breakContact(actor, 'contact-unknown')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

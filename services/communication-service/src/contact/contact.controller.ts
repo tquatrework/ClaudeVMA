@@ -2,120 +2,216 @@ import {
   Controller,
   Get,
   Post,
-  Delete,
-  Patch,
   Param,
   ParseUUIDPipe,
   Body,
+  Query,
   UseGuards,
+  BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ContactService } from './contact.service';
-import { UpdateVisibilityDto } from './dto/update-visibility.dto';
+import { ContactRequestService } from './contact-request.service';
+import { ContactRequest } from './entities/contact-request.entity';
+import { ProfileServiceClient } from './clients/profile-service.client';
 import { ContactResponseDto } from './dto/contact-response.dto';
+import { ContactRequestResponseDto } from './dto/contact-request-response.dto';
+import { CreateContactRequestDto } from './dto/create-contact-request.dto';
+import {
+  LoginIdentifierSearchResponseDto,
+  NameSearchResponseDto,
+  SearchResultDto,
+} from './dto/search-result.dto';
 
 /**
- * Public contact routes for the authenticated user.
- *
- * GET    /contacts                  → List authorized contacts (COM-BR-010)
- * POST   /contacts/:id/activate     → Activate a precontact
- * DELETE /contacts/:id              → Remove a non-mandatory contact
- * PATCH  /contacts/:id/visibility   → Toggle visible / hidden
+ * docs/routes.md — communication-service — Contacts.
+ * docs/architecture/contacts-messagerie.md (2026-09-04).
  */
 @ApiTags('contacts')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('contacts')
 export class ContactController {
-  constructor(private readonly contactService: ContactService) {}
+  constructor(
+    private readonly contactService: ContactService,
+    private readonly contactRequestService: ContactRequestService,
+    private readonly profileServiceClient: ProfileServiceClient,
+  ) {}
 
   @Get()
   @ApiOperation({
-    summary: 'List authorized contacts',
-    description:
-      'Returns all active, non-expired contacts authorized for the current user. ' +
-      'COM-BR-010: contact list is computed from profile-service business relations, not freely entered.',
+    summary: 'List my active contacts',
+    description: 'Returns every contact currently ACTIVE for the caller (accepted requests and default contacts).',
   })
-  @ApiResponse({ status: 200, description: 'List of authorized contacts', type: [ContactResponseDto] })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 200, type: [ContactResponseDto] })
+  @ApiResponse({ status: 401 })
   async listContacts(@CurrentUser() actor: AuthenticatedUser): Promise<ContactResponseDto[]> {
-    const contacts = await this.contactService.listContacts(actor);
-    return contacts.map((contact) => ContactResponseDto.fromEntity(contact));
-  }
-
-  @Post(':id/activate')
-  @ApiParam({ name: 'id', description: 'ContactPolicy UUID' })
-  @ApiOperation({
-    summary: 'Activate a precontact',
-    description:
-      'Transitions a contact from status "precontact" to "active", ' +
-      'making it available for messaging.',
-  })
-  @ApiResponse({ status: 200, description: 'Contact activated', type: ContactResponseDto })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  async activateContact(
-    @Param('id', ParseUUIDPipe) contactPolicyId: string,
-    @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<ContactResponseDto> {
-    const contact = await this.contactService.activateContact(actor, contactPolicyId);
-    return ContactResponseDto.fromEntity(contact);
-  }
-
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiParam({ name: 'id', description: 'ContactPolicy UUID' })
-  @ApiOperation({
-    summary: 'Remove a contact',
-    description:
-      'Removes a contact from the user\'s authorized list. ' +
-      'Only contacts with mandatory: false can be removed. ' +
-      'COM-BR-010: mandatory contacts (e.g. administrators, assigned teachers) cannot be deleted.',
-  })
-  @ApiResponse({ status: 204, description: 'Contact removed' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Contact is mandatory and cannot be removed' })
-  @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  async removeContact(
-    @Param('id', ParseUUIDPipe) contactPolicyId: string,
-    @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<void> {
-    await this.contactService.removeContact(actor, contactPolicyId);
-  }
-
-  @Patch(':id/visibility')
-  @ApiParam({ name: 'id', description: 'ContactPolicy UUID' })
-  @ApiOperation({
-    summary: 'Update contact visibility',
-    description:
-      'Sets the display preference of a contact to "visible" or "hidden". ' +
-      'Hidden contacts remain authorized for messaging but are filtered from the default list view.',
-  })
-  @ApiResponse({ status: 200, description: 'Visibility updated', type: ContactResponseDto })
-  @ApiResponse({ status: 400, description: 'Invalid visibility value' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  async updateVisibility(
-    @Param('id', ParseUUIDPipe) contactPolicyId: string,
-    @Body() updateVisibilityDto: UpdateVisibilityDto,
-    @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<ContactResponseDto> {
-    const contact = await this.contactService.updateVisibility(
-      actor,
-      contactPolicyId,
-      updateVisibilityDto.visibility,
+    const rows = await this.contactService.listActiveContacts(actor);
+    const names = await this.profileServiceClient.getDisplayNames(rows.map((row) => row.counterpartId));
+    const namesById = new Map(names.map((name) => [name.userId, name]));
+    return rows.map((row) =>
+      ContactResponseDto.fromEntity(row.contact, row.counterpartId, namesById.get(row.counterpartId) ?? null),
     );
-    return ContactResponseDto.fromEntity(contact);
+  }
+
+  @Post(':id/break')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', description: 'Contact UUID' })
+  @ApiOperation({
+    summary: 'Break an active contact',
+    description:
+      'Ends the contact (point 6): a voluntary act by either party, never destructive — the row ' +
+      'is kept with status "broken". Idempotent. A contact re-request is always possible afterwards.',
+  })
+  @ApiResponse({ status: 200, type: ContactResponseDto })
+  @ApiResponse({ status: 401 })
+  @ApiResponse({ status: 404, description: 'Contact not found for this user' })
+  async breakContact(
+    @Param('id', ParseUUIDPipe) contactId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactResponseDto> {
+    const contact = await this.contactService.breakContact(actor, contactId);
+    const counterpartId = contact.userAId === actor.id ? contact.userBId : contact.userAId;
+    const name = await this.profileServiceClient.getDisplayName(counterpartId);
+    return ContactResponseDto.fromEntity(contact, counterpartId, name);
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Search (point 2, 10, 11)
+  // -------------------------------------------------------------------------------------
+
+  @Get('search/by-login-identifier')
+  @ApiQuery({ name: 'value', required: true })
+  @ApiOperation({
+    summary: 'Find a person by exact loginIdentifier',
+    description:
+      'Composite search: identity-access-service resolves the account, profile-service resolves ' +
+      'the display name for confirmation before a request is sent.',
+  })
+  @ApiResponse({ status: 200, type: LoginIdentifierSearchResponseDto })
+  @ApiResponse({ status: 401 })
+  async searchByLoginIdentifier(
+    @Query('value') value: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<LoginIdentifierSearchResponseDto> {
+    if (!value || !value.trim()) throw new BadRequestException('Le paramètre "value" est requis');
+    const result = await this.contactRequestService.searchByLoginIdentifier(actor, value.trim());
+    return { found: result !== null, result: result ? SearchResultDto.fromResult(result) : null };
+  }
+
+  @Get('search/by-name')
+  @ApiQuery({ name: 'q', required: true })
+  @ApiOperation({
+    summary: 'Search people by first/last name',
+    description:
+      'point 10: zero or exactly one result is a normal outcome, not an anomaly — not every name ' +
+      'will be known. loginIdentifier is included on every result for homonym disambiguation.',
+  })
+  @ApiResponse({ status: 200, type: NameSearchResponseDto })
+  @ApiResponse({ status: 401 })
+  async searchByName(
+    @Query('q') query: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<NameSearchResponseDto> {
+    if (!query || !query.trim()) throw new BadRequestException('Le paramètre "q" est requis');
+    const results = await this.contactRequestService.searchByName(actor, query.trim());
+    return { results: results.map(SearchResultDto.fromResult) };
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Requests (points 2-3, 7, 9)
+  // -------------------------------------------------------------------------------------
+
+  @Get('requests/incoming')
+  @ApiOperation({ summary: 'List pending contact requests addressed to me' })
+  @ApiResponse({ status: 200, type: [ContactRequestResponseDto] })
+  @ApiResponse({ status: 401 })
+  async listIncoming(@CurrentUser() actor: AuthenticatedUser): Promise<ContactRequestResponseDto[]> {
+    const requests = await this.contactRequestService.listIncoming(actor);
+    return this.resolveRequestNames(requests, (request) => request.requesterId);
+  }
+
+  @Get('requests/outgoing')
+  @ApiOperation({ summary: 'List my sent contact requests (any status)' })
+  @ApiResponse({ status: 200, type: [ContactRequestResponseDto] })
+  @ApiResponse({ status: 401 })
+  async listOutgoing(@CurrentUser() actor: AuthenticatedUser): Promise<ContactRequestResponseDto[]> {
+    const requests = await this.contactRequestService.listOutgoing(actor);
+    return this.resolveRequestNames(requests, (request) => request.targetId);
+  }
+
+  @Post('requests')
+  @ApiOperation({
+    summary: 'Send a contact request',
+    description:
+      'Any authenticated user may request any other (point 2) — no automatic acceptance ever ' +
+      '(point 3). Subject to the refusal penalty (point 7): 1-month cooldown after a refusal, ' +
+      'permanent block at the 3rd cumulative refusal for this directed pair.',
+  })
+  @ApiResponse({ status: 201, type: ContactRequestResponseDto })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 401 })
+  @ApiResponse({ status: 403, description: 'Blocked by the refusal penalty' })
+  @ApiResponse({ status: 404, description: 'Target userId unknown' })
+  @ApiResponse({ status: 409, description: 'Already in contact, or a pending request already exists' })
+  async createRequest(
+    @Body() dto: CreateContactRequestDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactRequestResponseDto> {
+    const request = await this.contactRequestService.createRequest(actor, dto.targetId);
+    const name = await this.profileServiceClient.getDisplayName(dto.targetId);
+    return ContactRequestResponseDto.fromEntity(request, dto.targetId, name);
+  }
+
+  @Post('requests/:id/accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', description: 'ContactRequest UUID' })
+  @ApiOperation({ summary: 'Accept an incoming contact request' })
+  @ApiResponse({ status: 200, type: ContactRequestResponseDto })
+  @ApiResponse({ status: 401 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 409, description: 'Already responded' })
+  async acceptRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactRequestResponseDto> {
+    const request = await this.contactRequestService.acceptRequest(actor, requestId);
+    const name = await this.profileServiceClient.getDisplayName(request.requesterId);
+    return ContactRequestResponseDto.fromEntity(request, request.requesterId, name);
+  }
+
+  @Post('requests/:id/decline')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', description: 'ContactRequest UUID' })
+  @ApiOperation({ summary: 'Decline an incoming contact request' })
+  @ApiResponse({ status: 200, type: ContactRequestResponseDto })
+  @ApiResponse({ status: 401 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 409, description: 'Already responded' })
+  async declineRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactRequestResponseDto> {
+    const request = await this.contactRequestService.declineRequest(actor, requestId);
+    const name = await this.profileServiceClient.getDisplayName(request.requesterId);
+    return ContactRequestResponseDto.fromEntity(request, request.requesterId, name);
+  }
+
+  private async resolveRequestNames(
+    requests: ContactRequest[],
+    counterpartIdOf: (request: ContactRequest) => string,
+  ): Promise<ContactRequestResponseDto[]> {
+    const counterpartIds = requests.map(counterpartIdOf);
+    const names = await this.profileServiceClient.getDisplayNames(counterpartIds);
+    const namesById = new Map(names.map((name) => [name.userId, name]));
+    return requests.map((request) => {
+      const counterpartId = counterpartIdOf(request);
+      return ContactRequestResponseDto.fromEntity(request, counterpartId, namesById.get(counterpartId) ?? null);
+    });
   }
 }

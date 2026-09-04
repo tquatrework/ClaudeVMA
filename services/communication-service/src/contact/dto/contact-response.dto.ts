@@ -1,36 +1,38 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ContactPolicy, ContactStatus, ContactVisibility } from '../entities/contact-policy.entity';
+import { Contact, ContactOrigin, ContactStatus } from '../entities/contact.entity';
+
+export class DisplayNameDto {
+  @ApiPropertyOptional({ nullable: true }) firstName: string | null;
+  @ApiPropertyOptional({ nullable: true }) lastName: string | null;
+}
 
 /**
- * Explicit response contract for a ContactPolicy. Controllers never return
- * the TypeORM entity directly.
+ * Explicit response contract for a Contact. Controllers never return the TypeORM entity
+ * directly. `counterpartId` is resolved relative to the calling actor (never both userAId and
+ * userBId — the caller only cares "who is the other person").
  */
 export class ContactResponseDto {
   @ApiProperty() id: string;
-  @ApiProperty() userId: string;
-  @ApiProperty() contactId: string;
-  @ApiPropertyOptional({ nullable: true }) expiresAt: Date | null;
-  @ApiPropertyOptional({ nullable: true }) relationType: string | null;
-  @ApiProperty() active: boolean;
+  @ApiProperty() counterpartId: string;
+  @ApiPropertyOptional({ nullable: true, type: DisplayNameDto }) counterpartName: DisplayNameDto | null;
   @ApiProperty() status: ContactStatus;
-  @ApiProperty() mandatory: boolean;
-  @ApiProperty() visibility: ContactVisibility;
+  @ApiProperty() origin: ContactOrigin;
   @ApiProperty() createdAt: Date;
-  @ApiProperty() updatedAt: Date;
+  @ApiPropertyOptional({ nullable: true }) brokenAt: Date | null;
 
-  static fromEntity(entity: ContactPolicy): ContactResponseDto {
+  static fromEntity(
+    contact: Contact,
+    counterpartId: string,
+    counterpartName: DisplayNameDto | null = null,
+  ): ContactResponseDto {
     const dto = new ContactResponseDto();
-    dto.id = entity.id;
-    dto.userId = entity.userId;
-    dto.contactId = entity.contactId;
-    dto.expiresAt = entity.expiresAt;
-    dto.relationType = entity.relationType;
-    dto.active = entity.active;
-    dto.status = entity.status;
-    dto.mandatory = entity.mandatory;
-    dto.visibility = entity.visibility;
-    dto.createdAt = entity.createdAt;
-    dto.updatedAt = entity.updatedAt;
+    dto.id = contact.id;
+    dto.counterpartId = counterpartId;
+    dto.counterpartName = counterpartName;
+    dto.status = contact.status;
+    dto.origin = contact.origin;
+    dto.createdAt = contact.createdAt;
+    dto.brokenAt = contact.brokenAt;
     return dto;
   }
 }

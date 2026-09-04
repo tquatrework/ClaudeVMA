@@ -24,6 +24,7 @@ import EleveDashboardPage from '../src/pages/EleveDashboardPage'
 import ProfesseurDashboardPage from '../src/pages/ProfesseurDashboardPage'
 import CalendarPage from '../src/pages/CalendarPage'
 import MessagesPage from '../src/pages/MessagesPage'
+import ContactsPage from '../src/pages/ContactsPage'
 import TeacherRequestsPage from '../src/pages/TeacherRequestsPage'
 import ProfilePage from '../src/pages/ProfilePage'
 import ProfileEditPage from '../src/pages/ProfileEditPage'
@@ -192,10 +193,27 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Journey 3: Dashboard → Messagerie → Envoi message
+// Journey 3: Dashboard → Contacts → Écrire → Envoi message
+//
+// Depuis la fusion « Contacts » + « Messages » en une seule entrée de menu du
+// haut (2026-09-04, demande explicite utilisateur), il n'existe plus de lien
+// « Messages » direct : l'envoi de message se fait désormais depuis l'écran
+// Contacts, via le bouton « Écrire » d'une fiche contact (ContactRow →
+// navigate('/messages', { state: { initialContactId, initialContactLabel } })).
 // ---------------------------------------------------------------------------
-describe('Journey 3: Dashboard → Messagerie → Envoi message', () => {
-  it('navigates from dashboard to messages and sends a message', async () => {
+describe('Journey 3: Dashboard → Contacts → Écrire → Envoi message', () => {
+  it('navigates from dashboard to contacts, starts a conversation and sends a message', async () => {
+    const contacts = [
+      {
+        id: 'contact-1',
+        userId: 'teacher-1',
+        email: 'formateur@test.com',
+        displayName: 'Camille Formateur',
+        role: 'formateur',
+        status: 'active' as const,
+        mandatory: true,
+      },
+    ]
     const conversations = [
       { id: 'conv-1', participantEmail: 'formateur@test.com', unreadCount: 0 },
     ]
@@ -208,6 +226,7 @@ describe('Journey 3: Dashboard → Messagerie → Envoi message', () => {
     }
 
     mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/contacts') return Promise.resolve({ data: contacts })
       if (url === '/conversations') return Promise.resolve({ data: conversations })
       if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
@@ -218,6 +237,7 @@ describe('Journey 3: Dashboard → Messagerie → Envoi message', () => {
       <MemoryRouter initialEntries={['/dashboard/eleve']}>
         <Routes>
           <Route path="/dashboard/eleve" element={<EleveDashboardPage />} />
+          <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/messages" element={<MessagesPage />} />
         </Routes>
       </MemoryRouter>,
@@ -227,11 +247,17 @@ describe('Journey 3: Dashboard → Messagerie → Envoi message', () => {
       expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
-    // Navigate to messages — use the Messages nav link
-    const messagesLinks = screen.getAllByText('Messages')
-    await userEvent.click(messagesLinks[0])
+    // Navigate to Contacts — plus qu'un seul lien « Contacts » dans le menu du haut
+    const contactsLinks = screen.getAllByText('Contacts')
+    await userEvent.click(contactsLinks[0])
 
-    // Wait for conversations to load
+    // Wait for the contact to load, then start a conversation with them
+    await waitFor(() => {
+      expect(screen.getByText('Camille Formateur')).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: /écrire/i }))
+
+    // Lands on /messages with conversations already loaded
     await waitFor(() => {
       expect(screen.getByText('formateur@test.com')).toBeDefined()
     })

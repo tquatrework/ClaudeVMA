@@ -19,9 +19,17 @@ import '../styles/tokens.css'
 // aux rôles TI/RP/AF qui ont accès à ce dashboard.
 // Les liens qui pointent vers des routes restreintes (ex: /admin/observability/technical-logs)
 // seront filtrés dynamiquement dans le composant via useCanAccess.
+// 'Messages' fusionné dans 'Contacts' le 2026-09-04 (demande explicite
+// utilisateur, reconstruction du menu du haut) : l'envoi de message se fait
+// désormais depuis l'écran Contacts. 'Forums' ajouté le même jour, visible à
+// tous les rôles (voir navigationConfig.ts, TOP_NAV_CONFIG — cette liste
+// reste hardcodée pour ce dashboard TI, indépendante de la source centrale ;
+// alignée manuellement ici plutôt que de convertir ce dashboard à
+// filterTopNavItems, hors périmètre de ce chantier).
 const ALL_TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/admin/observability' },
-  { label: 'Messages', path: '/messages' },
+  { label: 'Contacts', path: '/contacts' },
+  { label: 'Forums', path: '/community/forums' },
   { label: 'Activité', path: '/admin/observability/activity-log' },
   { label: 'Logs', path: '/admin/observability/technical-logs' },
   { label: 'Santé services', path: '/admin/observability/health' },

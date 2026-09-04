@@ -55,7 +55,10 @@ describe('Rail RP — structure reconstruite (2026-09-02)', () => {
     ])
   })
 
-  it('groupe Contenu : Quizz, Exercices, Évaluations, Tutos/Vidéos, Forums, Parcours, Jeux', () => {
+  // 'Forums' retiré de ce groupe le 2026-09-04 (reconstruction du menu du
+  // haut, demande explicite utilisateur) : accessible depuis TOP_NAV_CONFIG
+  // (id 'forums'), visible à tous les rôles, plus seulement depuis ce rail.
+  it('groupe Contenu : Quizz, Exercices, Évaluations, Tutos/Vidéos, Parcours, Jeux', () => {
     const contenu = groups.find((group) => group.groupLabel === 'Contenu')
     expect(contenu).toBeDefined()
     expect(contenu!.items.map((item) => [item.label, item.path])).toEqual([
@@ -63,7 +66,6 @@ describe('Rail RP — structure reconstruite (2026-09-02)', () => {
       ['Exercices', '/content/exercises'],
       ['Évaluations', '/content/evaluations'],
       ['Tutos/Vidéos', '/content/tutorials'],
-      ['Forums', '/community/forums'],
       ['Parcours', '/community/paths'],
       ['Jeux', '/community/games'],
     ])

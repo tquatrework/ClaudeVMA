@@ -56,6 +56,19 @@ absente de la liste des routes enregistrées (confirmation indépendante du rapp
 **Reste à faire** : déléguer `front-developper` — refonte de `ForumDetailPage` en liste de sujets +
 page de détail de sujet, simplification de `ForumCreateForm` (retrait des 4 champs).
 
+**`front-developper` mergé (PR #250), déployé, site vérifié `200` (bundle confirmé à jour).**
+`ForumDetailPage` devient une liste de sujets (`GET /forums/:id/topics`) ; nouvelle
+`ForumTopicDetailPage` (route `/community/forums/:forumId/topics/:topicId`, posts paginés,
+formulaire de commentaire avec gate charte, suppression réservée au RP) ; nouveau composant
+`ForumTopicCreateForm` (titre + premier message, ouvert à tout membre ayant accès et ayant accepté
+la charte) ; `ForumModerationPanel` étendu d'une section "Sujets en attente de validation" avec
+décision inline RP ; `ForumCreateForm` allégé des 4 champs retirés ; `api/forums.ts` scindé en
+`api/forumTopics.ts` (limite de 300 lignes du projet). 103/103 tests Forums verts, 0 régression sur
+le reste (51 échecs pré-existants inchangés, comparaison `git stash`).
+
+**Chantier structure en sujets (topics) des Forums clos.** Backend (PR #248) + front (PR #250)
+mergés, déployés, vérifiés en HTTP direct et par lecture des logs de démarrage.
+
 ---
 
 Texte réel de la charte de bonne conduite des forums, fourni par l'utilisateur le 2026-09-04 —

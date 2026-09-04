@@ -302,3 +302,54 @@ Suite directe de la refonte Forums ci-dessus. L'utilisateur a fourni le texte r�
   `EXACT MATCH: True`).
 - Working tree du service inchangé (`git status` propre) : ce complément n'a donné lieu à aucun
   commit ni PR, seulement à une écriture de données via la route déjà existante.
+
+## Auteur résolu des sujets et commentaires de forum — 2026-09-04 (branche `feat/forum-comment-author-names`, PR #253)
+
+Suite directe du chantier « Structure en sujets (topics) des Forums » (PR #230/#235/#239/#244/#248).
+`ForumComment`/`ForumTopic` portent `authorId`/`authorRole`, mais rien ne résolvait `authorId` en
+nom affichable — violation de la règle du projet interdisant tout UUID visible par un utilisateur
+(arbitrage du 2026-08-09). Voir `docs/architecture/identite-profils-acces.md`, section « Affichage
+de l'auteur de chaque commentaire », 2026-09-04.
+
+- **Nouveau `src/common/clients/profile-service.client.ts`** (`ProfileServiceClient`), premier
+  client HTTP interservice du service. Reprend exactement le patron déjà éprouvé par
+  `teacher-request-service`/`dashboard-notification-service` : `fetch` natif Node 20 (pas de
+  dépendance `axios`/`@nestjs/axios` ajoutée), `AbortController` + timeout 3 s,
+  `X-Internal-Secret` lu via `ConfigService.getOrThrow('INTERNAL_SECRET')`,
+  `PROFILE_SERVICE_URL` lu de la même façon.
+  - `resolveDisplayNames(userIds: string[]): Promise<Map<string, DisplayName>>` — appelle
+    `POST /internal/profiles/display-names` (route interne déjà existante côté `profile-service`),
+    déduplique les `userId` avant l'appel.
+  - **Politique d'échec délibérément différente de `dashboard-notification-service`** (qui lève,
+    car un événement de notification doit être rejoué plutôt que produire un message sans nom) :
+    ici, toute erreur (réseau, timeout, HTTP non-2xx) **dégrade gracieusement** — Map vide renvoyée,
+    jamais d'exception. Un `authorId` absent de la Map se traduit en `authorName: null` côté
+    appelant, jamais un UUID de secours.
+- **`ForumsService` : nouvelle méthode privée `attachAuthorNames<T extends {authorId}>(entities)`**,
+  utilitaire générique branché sur les trois routes de lecture concernées :
+  - `getTopicComments()` — un seul appel groupé sur tous les `authorId` distincts de la page,
+    plutôt qu'un appel par commentaire (exigence explicite de l'arbitrage).
+  - `findTopics()` — même principe, un appel groupé par page de sujets.
+  - `getTopic()` — un appel avec un seul `authorId` (le sujet demandé).
+  - Type `WithAuthorName<T> = T & { authorName: DisplayName | null }` exporté par `forums.service.ts`.
+  - `firstComment` de la réponse de création (`POST /forums/:id/topics`) **n'est pas enrichi** —
+    l'auteur est l'appelant lui-même, connu du front sans résolution.
+- **`ForumsModule`** : `ProfileServiceClient` ajouté aux `providers`, injecté dans `ForumsService`.
+- **`docker-compose.yml`** : `PROFILE_SERVICE_URL: http://profile-service:3002` ajouté à
+  l'environnement de `community-path-service` (absent jusqu'ici, ce service n'appelait encore
+  aucun autre service).
+- Tests : nouveau fichier `test/unit/common/clients/profile-service.client.spec.ts` (7 tests :
+  dédoublonnage, forme de l'appel HTTP, Map indexée par `userId`, entrée absente de la réponse,
+  dégradation gracieuse sur HTTP non-2xx / erreur réseau / timeout — mock direct de `global.fetch`,
+  pas de nouvelle dépendance de test). `forums.service.spec.ts` : nouveau provider
+  `ProfileServiceClient` mocké (dégradation par défaut = Map vide, pour ne pas polluer les tests
+  existants qui ne portent pas sur la résolution de nom), + 4 nouveaux tests ciblés (résolution
+  groupée sur `getTopicComments()`, dégradation gracieuse, `findTopics()`, `getTopic()`). Fixtures
+  du test d'acceptance (`community-path-acceptance.spec.ts`) mises à jour aux 3 endroits où
+  `ForumsService` est instancié directement. 231 tests passent (8 suites), `tsc --noEmit` et
+  `nest build` propres.
+- Contrat détaillé (forme exacte de `authorName`, routes concernées) : `docs/routes.md`, section
+  `## community-path-service`, juste après le contrat `ForumComment`/`ForumTopic` des sujets.
+- **Point en suspens** : preuve HTTP contre la pile réelle après déploiement non faite par cet
+  agent (hors permission d'un subagent service — l'orchestrateur ou l'utilisateur doit vérifier
+  après merge et déploiement).

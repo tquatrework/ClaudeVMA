@@ -179,3 +179,37 @@ services/community-path-service/
 - Les badges (`Badge` entity) sont mentionnés dans la spec mais non implémentés (hors scope minimum).
 - Les mégaparcours sont mentionnés dans la spec mais non modélisés (nécessiterait une entité `MegaPath` agrégant des `LearningPath`).
 - La gestion des précontacts via forum (fonctionnalité 003) n'est pas implémentée — dépend du `communication-service`.
+
+## Refonte Forums — 2026-09-04 (PR #230, branche `feat/community-path-forums-refonte`)
+
+**Le contenu ci-dessus (session 2026-06-18) est en grande partie obsolète pour le module Forums**,
+qui a été refondu le 2026-09-04 (voir `docs/architecture/identite-profils-acces.md`, section
+« Développement réel des Forums »). Cette section documente ce qui a réellement changé, sans
+réécrire l'arborescence entière ci-dessus — le contrat complet et à jour est dans
+`docs/routes.md`, section `## community-path-service`, qui fait foi.
+
+Changements principaux par rapport à la session 2026-06-18 :
+
+- **Seul le RP crée un forum** (l'AP a perdu ce droit) ; un forum RP est visible dès sa création,
+  aucun mécanisme de publication/validation n'existe pour ce type de contenu.
+- **`ForumPublic` (etudiant/mixte/professeur) est retiré**, remplacé par `allowedRoles: string[] | null`
+  (restriction par catégorie de rôle, `null` = ouvert à tous les comptes connectés) — voir
+  `forum-restrictable-role.enum.ts`.
+- **Nouvelles entités** : `ForumCharterSetting`/`ForumCharterAcceptance` (charte de bonne conduite,
+  globale, acceptation requise avant de commenter — pas avant de lire) ; image d'illustration
+  (`imageFilename`/`imageMimeType` sur `Forum`, volume Docker nommé `community_path_forum_images`,
+  service `ForumImageStorageService`).
+- **`DELETE /forums/:id/comments/:commentId`**, réservé au RP (suppression physique).
+- **`GET /forums/:id`** et **`GET /forums/:id/comments`** (paginée, plus ancien en premier) ajoutées
+  le même jour en suite directe de la PR #230 (gap réel : aucun moyen de relire un forum seul ni ses
+  commentaires). Nouvel utilitaire partagé `src/common/utils/pagination.util.ts` (convention
+  `page`/`limit` déjà en place ailleurs dans le projet, première utilisation dans ce service).
+
+**Points en suspens réels, au-delà de ceux listés en 2026-06-18** :
+- Modules `Parcours`/`Badges` non touchés par ce chantier, toujours dans l'état de la session
+  2026-06-18 (pas de forum-style refonte, pas de pagination).
+- Le texte réel de la charte n'a pas été fourni par l'utilisateur au moment du 2026-09-04 ;
+  `content: ""` jusqu'à ce qu'un RP ou un TI le renseigne via `PATCH /forums/charter`.
+- L'arborescence et le tableau « Routes disponibles » ci-dessus (lignes ~83-169) n'ont pas été
+  remis à jour ligne par ligne pour cette refonte — se référer à `docs/routes.md` plutôt qu'à ce
+  tableau pour toute route Forums.

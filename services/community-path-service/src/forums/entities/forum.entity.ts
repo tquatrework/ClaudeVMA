@@ -6,7 +6,6 @@ import {
   UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
-import { ForumPublic } from '../../common/enums/forum-public.enum';
 import { ForumComment } from './forum-comment.entity';
 import { ForumExclusion } from './forum-exclusion.entity';
 
@@ -36,11 +35,16 @@ export class Forum {
   @Column({ nullable: true })
   tags: string;
 
-  @Column({
-    type: 'varchar',
-    default: ForumPublic.MIXTE,
-  })
-  public: ForumPublic;
+  /**
+   * Liste des rôles autorisés à voir et à participer au forum. `null` (ou
+   * tableau vide) signifie "ouvert à tous les comptes connectés" — valeur
+   * par défaut. Les rôles administratifs (RP, AF, TI) gardent de toute
+   * façon un accès illimité, voir FORUM_ADMIN_BYPASS_ROLES.
+   * Remplace l'ancien enum ForumPublic (etudiant/mixte/professeur), retiré
+   * le 2026-09-04 car trop étroit pour cette spécification.
+   */
+  @Column({ type: 'text', array: true, nullable: true })
+  allowedRoles: string[] | null;
 
   @Column()
   createdById: string;
@@ -48,8 +52,16 @@ export class Forum {
   @Column()
   createdByRole: string;
 
-  @Column({ default: false })
-  isPublished: boolean;
+  /**
+   * Nom de fichier généré côté serveur pour l'image d'illustration, stockée
+   * sur le volume dédié à ce service (jamais un chemin fourni par le
+   * client). `null` tant qu'aucune image n'a été envoyée.
+   */
+  @Column({ nullable: true })
+  imageFilename: string | null;
+
+  @Column({ nullable: true })
+  imageMimeType: string | null;
 
   @OneToMany(() => ForumComment, (comment) => comment.forum, { cascade: true })
   comments: ForumComment[];

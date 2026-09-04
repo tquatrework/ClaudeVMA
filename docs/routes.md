@@ -3403,3 +3403,228 @@ publiés — `at-least-once`, `dashboard-notification-service` doit dédupliquer
 
 Aucun de ces types n'est aujourd'hui consommé par `dashboard-notification-service` — délégation
 distincte à venir, voir `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`.
+
+## community-path-service
+
+Préfixe gateway : `/api/v1/forums` (🔒, `auth_request` via identity-access-service) →
+`community-path-service:3015`, Swagger sur `/api/v1/forums/docs`. Le contrôleur reste monté sur
+`Controller('forums')` : toutes les routes ci-dessous, y compris celles de la charte et de
+l'image, vivent donc sous `/api/v1/forums/...`, jamais sous un préfixe séparé. Toutes les routes
+sont protégées par `JwtAuthGuard` + `RolesGuard` (Bearer JWT requis, 🔒), mais **aucune n'utilise
+un décorateur `@Roles()` déclaratif** : les contrôles de rôle sont faits à la main dans
+`ForumsService`, donc un rôle insuffisant renvoie une exception métier explicite (403 ou 404
+selon le cas, détaillé route par route ci-dessous) plutôt qu'un rejet de guard générique.
+
+Ce service porte aussi un module `Parcours` (`/api/v1/paths`, `/api/v1/path-enrollments`) et un
+module `Badges` (`/api/v1/badges`), tous deux déjà routés par la gateway — **hors périmètre de
+cette section**, non couverts par le chantier Forums du 2026-09-04 (PR #230) ni documentés ici ;
+à traiter dans une passe distincte.
+
+Arbitrage source : `docs/architecture/identite-profils-acces.md`, section « Developpement reel des
+Forums (`community-path-service`) », 2026-09-04. Révise et remplace le point plus ancien « Forums
+AP » du même fichier (un AP pouvait créer un forum soumis à validation RP) : **seul le RP crée
+désormais un forum**, il est visible dès sa création, aucun mécanisme de publication/validation
+n'existe plus pour ce type de contenu.
+
+### Forums
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /forums | Créer un forum, visible immédiatement (aucune étape de publication/validation) | 🔒 | responsable_pedagogique (uniquement — l'AP a perdu ce droit le 2026-09-04) | `201 Forum` · `400` DTO invalide · `401` · `403` `"Seul le responsable pédagogique peut créer un forum"` |
+| GET | /forums | Lister les forums accessibles à l'appelant, filtrables par `tags` (query, chaîne séparée par virgules, correspondance `ILIKE` partielle insensible à la casse, `OR` entre tags) | 🔒 | tous rôles authentifiés | `200 Forum[]` · `401` |
+
+Body `POST /forums` :
+
+```json
+{
+  "title": "string (requis, non vide)",
+  "description": "string (optionnel)",
+  "level": "string (optionnel)",
+  "difficulty": "string (optionnel)",
+  "theme": "string (optionnel)",
+  "competences": "string (optionnel)",
+  "tags": "string (optionnel, libre, ex: \"algèbre,trigonométrie\")",
+  "allowedRoles": ["eleve" | "parent_financeur" | "formateur" | "animateur_pedagogique"]
+}
+```
+
+`allowedRoles` est **optionnel** : absent ou tableau vide = forum ouvert à tout compte connecté
+(comportement par défaut). Les rôles administratifs (`responsable_pedagogique`,
+`administrateur_financier`, `technicien_informatique`) ne sont **jamais** des valeurs valides dans
+`allowedRoles` — ils gardent de toute façon un accès illimité à tout forum quel que soit son
+réglage (`FORUM_ADMIN_BYPASS_ROLES`), les y ajouter n'aurait aucun effet ; ne pas les proposer
+dans un sélecteur front. Les 4 seules valeurs acceptées sont celles de `ForumRestrictableRole` :
+`eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`. Toute autre valeur → `400`.
+
+Forme de l'entité `Forum`, renvoyée par `POST /forums`, dans le tableau de `GET /forums`, et par
+`POST /forums/:id/image` (mise à jour) :
+
+```json
+{
+  "id": "uuid",
+  "title": "string",
+  "description": "string | null",
+  "level": "string | null",
+  "difficulty": "string | null",
+  "theme": "string | null",
+  "competences": "string | null",
+  "tags": "string | null",
+  "allowedRoles": ["eleve", "formateur", ...] | null,
+  "createdById": "uuid",
+  "createdByRole": "string (toujours \"responsable_pedagogique\" pour un forum créé après le 2026-09-04)",
+  "imageFilename": "string | null",
+  "imageMimeType": "string | null",
+  "createdAt": "ISO date",
+  "updatedAt": "ISO date"
+}
+```
+
+`imageFilename`/`imageMimeType` sont des **détails de stockage interne** : ne jamais construire
+une URL d'image à partir de ces deux champs côté front — passer systématiquement par
+`GET /forums/:id/image` (voir plus bas). Aucun UUID de ces champs n'est destiné à être affiché à
+l'utilisateur (règle générale du projet, 2026-08-09) — `imageFilename` en particulier n'est pas un
+UUID de personne mais reste un identifiant technique de fichier, à ne traiter que comme un
+indicateur booléen « ce forum a-t-il une image » côté front, jamais comme un texte affiché.
+
+**Masquage total (404, jamais 403) sur un forum restreint.** Un forum dont `allowedRoles` ne
+contient pas le rôle de l'appelant (et que l'appelant n'est pas administratif) est **absent** de
+`GET /forums` — pas un item masqué dans le tableau, l'entrée n'existe simplement pas dans la
+réponse. La même règle vaut pour `GET /forums/:id/image` et `POST /forums/:id/comments` (404 au
+lieu d'un 403 qui révélerait l'existence du forum) — voir ces routes plus bas. `GET /forums` ne
+renvoie donc jamais lui-même de 403 pour ce motif : le filtrage se fait par omission dans la
+liste.
+
+**Détail d'un forum, et lecture des commentaires — ajoutés le 2026-09-04, suite directe de la
+PR #230.** Le gap documenté ci-dessous (ancienne version de cette section) a été comblé : un écran
+de fil de discussion est désormais constructible avec le contrat actuel.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /forums/:id | Détail d'un forum unique | 🔒 | tous rôles autorisés sur ce forum | `200 Forum` (même forme que `GET /forums`) · `401` · `404` forum inexistant **ou** rôle non autorisé sur ce forum restreint (masquage, même erreur générique dans les deux cas) |
+| GET | /forums/:id/comments | Lister les commentaires d'un forum, **du plus ancien au plus récent** (ordre de lecture d'un fil de discussion — choix explicite du service, l'arbitrage ne précisait pas de sens) | 🔒 | mêmes droits que le détail du forum | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que ci-dessus |
+
+**Placement dans le contrôleur (important pour qui retouche ce fichier)** : `GET /forums/:id` est
+déclaré *après* les routes littérales à un seul segment (`GET /forums/charter`,
+`GET /forums/image-constraints`) — Nest/Express résolvent les routes dans leur ordre
+d'enregistrement, une déclaration plus haute de `:id` capturerait ces chemins littéraux comme un
+identifiant de forum.
+
+Query `GET /forums/:id/comments` : `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**) —
+même convention que le reste du projet (`GET /profiles/teachers/validated`,
+`GET /profiles/directory/by-role`) : plafond **refusé explicitement** (`400`, message en français
+citant la limite), jamais rogné en silence ; une page au-delà de la dernière renvoie
+`200 {data: [], total, totalPages}`, jamais `404`. Première utilisation de cette convention de
+pagination dans `community-path-service` — utilitaire partagé
+`src/common/utils/pagination.util.ts`, réutilisable pour un futur besoin paginé du même service
+(Parcours, Badges).
+
+**Masquage identique à `GET /forums`/`POST /forums/:id/comments`** : forum inexistant et rôle non
+autorisé sur un forum restreint renvoient la **même** `404` générique, jamais de `403` qui
+révélerait l'existence du forum.
+
+**Charte de bonne conduite : aucune nouvelle route nécessaire.** La charte est globale, pas
+propre à un forum (voir section « Charte de bonne conduite » ci-dessous) : `GET /forums/charter/acceptance`,
+déjà existante, indique déjà si l'appelant doit accepter la charte avant de commenter — sur
+**n'importe quel** forum, pas seulement celui consulté. Le front peut donc, en consultant un
+forum, appeler cette route une fois (indépendamment du forum affiché) pour savoir s'il doit
+proposer le bouton « Commenter » ou rediriger vers l'acceptation de la charte ; aucun appel scopé
+par `forumId` n'est nécessaire ni disponible.
+
+### Charte de bonne conduite
+
+Texte **unique et global** pour toute la plateforme (une seule ligne de réglage en base, pas une
+charte par forum, pas de versionnage). La lecture d'un forum ne l'exige pas ; seule la
+**participation** (publier un commentaire) l'exige.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /forums/charter | Lire le texte courant de la charte | 🔒 | tout compte authentifié | `200 {content, updatedAt}` · `401` |
+| PATCH | /forums/charter | Remplacer intégralement le texte courant (pas de versionnage, écrase le précédent) | 🔒 | responsable_pedagogique, technicien_informatique | `200 {content, updatedAt}` · `400` `content` absent/invalide · `403` |
+| GET | /forums/charter/acceptance | Consulter mon propre statut d'acceptation | 🔒 | tout compte authentifié | `200 {accepted, acceptedAt}` · `401` |
+| POST | /forums/charter/acceptance | Accepter la charte, sans body. **Idempotent** | 🔒 | tout compte authentifié | `201 {accepted:true, acceptedAt}` première acceptation · `200 {accepted:true, acceptedAt}` si déjà acceptée précédemment (pas d'erreur, renvoie l'acceptation existante) |
+
+Body `PATCH /forums/charter` : `{ "content": "string" }`. Réponse `GET`/`PATCH /forums/charter` :
+`{ "content": "string (peut être vide — c'est l'état initial tant que RP/TI n'a rien renseigné)", "updatedAt": "ISO date" }`.
+Réponse `GET`/`POST /forums/charter/acceptance` : `{ "accepted": boolean, "acceptedAt": "ISO date | null" }`.
+
+Le texte réel de la charte n'a pas encore été fourni par l'utilisateur au moment de cette PR : il
+reste vide (`content: ""`) jusqu'à ce qu'un RP ou un TI le renseigne via `PATCH /forums/charter`.
+
+### Image d'illustration
+
+Volume Docker nommé dédié à ce service (`community_path_forum_images`, premier stockage binaire
+de `community-path-service`). Réencodage systématique via `sharp` à l'envoi (type détecté sur les
+octets réels, jamais sur l'extension ni le `Content-Type` client), redimensionnement au maximum
+1200 px sur le plus grand côté sans agrandissement, SVG et tout format non reconnu refusés, nom de
+fichier généré côté serveur.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /forums/image-constraints | **À lire avant d'afficher le sélecteur de fichier**, sur le modèle de `GET /profiles/avatar/constraints` — jamais codé en dur côté front | 🔒 | tout compte authentifié | `200 {maxSizeBytes, allowedMimeTypes}` — ex. `{"maxSizeBytes":1000000,"allowedMimeTypes":["image/jpeg","image/png","image/webp","image/gif"]}` · `401` |
+| POST | /forums/:id/image | Téléverser ou remplacer l'image d'illustration. `multipart/form-data`, champ de fichier nommé **`file`** | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité mise à jour, `imageFilename`/`imageMimeType` renseignés — toujours utiliser `GET /forums/:id/image` pour l'affichage, jamais reconstruire un chemin) · `400` aucun fichier envoyé, fichier > 1 000 000 octets (message cite la taille reçue et la limite, en français), ou format non reconnu par le réencodage (SVG compris) · `403` appelant non RP · `404` forum introuvable |
+| GET | /forums/:id/image | Lire le binaire de l'image, `Content-Type` posé selon le type réel détecté à l'envoi. Réapplique la restriction de rôle du forum : un forum masqué pour ce rôle masque aussi son image | 🔒 | tous rôles authentifiés, sous réserve d'accès au forum | `200` corps binaire · `404` — **trois cas indistincts côté front, volontairement** : forum inexistant, forum existant mais rôle non autorisé (restriction), ou forum accessible mais sans image envoyée |
+
+Plafond fixé à **1 000 000 octets (1 Mo SI)**, même valeur et même motif que l'avatar de profil
+(2026-08-10) : rester strictement sous le défaut non déclaré de 1 Mio de `nginx-global`
+(`api-gateway` déclare déjà `client_max_body_size 10m`, largement suffisant, aucun changement de
+routage nécessaire côté gateway pour cette taille).
+
+### Commentaires
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /forums/:id/comments | Publier un commentaire. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (voir corps structuré ci-dessous) · `404` forum inexistant **ou** rôle non autorisé sur ce forum restreint (masquage, même erreur générique dans les deux cas) |
+| DELETE | /forums/:id/comments/:commentId | Supprimer un commentaire a posteriori. Suppression **physique**, définitive (pas de trace conservée — rien dans l'arbitrage n'exige de preuve rétroactive ici, à la différence des consentements/relations ailleurs dans le projet) | 🔒 | responsable_pedagogique (uniquement — ni l'auteur, ni l'AP, ni le TI) | `204` (pas de corps) · `403` appelant non RP · `404` commentaire introuvable pour ce `forumId` précis (y compris s'il existe mais sous un autre forum) |
+
+Body `POST /forums/:id/comments` : `{ "content": "string (requis, non vide)" }`.
+
+Forme de l'entité `ForumComment` :
+
+```json
+{ "id": "uuid", "forumId": "uuid", "authorId": "uuid", "authorRole": "string", "content": "string", "createdAt": "ISO date" }
+```
+
+**Deux causes de `403` distinctes, à différencier côté front sur le corps de réponse :**
+- Exclu de ce forum précis (`ForumExclusion`) — corps Nest standard, **pas** de champ `code` :
+  `{ "statusCode": 403, "message": "Vous avez été exclu de ce forum" }`.
+- **Charte non acceptée** — corps structuré distinctif :
+  ```json
+  { "statusCode": 403, "code": "CHARTER_NOT_ACCEPTED", "message": "Vous devez accepter la charte de bonne conduite avant de participer à un forum" }
+  ```
+  C'est le signal explicite à utiliser pour rediriger l'utilisateur vers l'écran de lecture/
+  acceptation de la charte (`GET`/`POST /forums/charter*`) plutôt que d'afficher une erreur
+  générique.
+
+### Exclusions
+
+Mécanisme individuel, **inchangé** par le chantier du 2026-09-04, complémentaire à la restriction
+de rôle sur `allowedRoles` (l'une exclut une personne précise, l'autre une catégorie entière de
+rôle) — les deux peuvent coexister sur un même forum.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /forums/:id/exclusions | Exclure un membre précis du forum | 🔒 | propriétaire du forum (`createdById`, de fait toujours un RP depuis le 2026-09-04) ou tout responsable_pedagogique | `201 ForumExclusion` · `400` utilisateur déjà exclu de ce forum · `403` ni propriétaire ni RP · `404` forum introuvable |
+
+Body : `{ "excludedUserId": "uuid (requis)", "reason": "string (optionnel)" }`. Forme de l'entité
+`ForumExclusion` :
+
+```json
+{ "id": "uuid", "forumId": "uuid", "excludedUserId": "uuid", "excludedByUserId": "uuid", "reason": "string | null", "createdAt": "ISO date" }
+```
+
+### Notes pour `front-developper`
+
+- Le formulaire de création RP doit lire `GET /forums/image-constraints` avant d'afficher le
+  bouton d'upload d'image, même principe que l'avatar de profil.
+- Prévoir un écran/bandeau bloquant la zone de saisie de commentaire tant que
+  `GET /forums/charter/acceptance` renvoie `accepted: false`, avec un chemin vers la lecture de la
+  charte (`GET /forums/charter`) puis son acceptation (`POST /forums/charter/acceptance`).
+- Un forum qui disparaît de `GET /forums` (changement de restriction de rôle par le RP, ou
+  changement de rôle de l'appelant) doit disparaître silencieusement des écrans qui le listaient ;
+  `GET /forums/:id` (ajoutée le 2026-09-04) applique le même masquage 404, donc un rechargement de
+  détail après un changement de restriction échoue proprement plutôt que de fuiter le forum.
+- Un écran de fil de discussion peut désormais s'appuyer sur `GET /forums/:id/comments` (ajoutée
+  le 2026-09-04, paginée) pour relire les commentaires déjà publiés — `POST /forums/:id/comments`
+  reste la seule route d'écriture.
+- Le bouton « Commenter » vs « Accepter la charte » se pilote avec `GET /forums/charter/acceptance`
+  (globale, pas besoin de la rappeler par forum) — voir section « Détail... » ci-dessus.

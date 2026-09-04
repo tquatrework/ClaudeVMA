@@ -1,6 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
-import { ForumPublic } from '../../common/enums/forum-public.enum';
+import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
+import { IsString, IsOptional, IsEnum, IsNotEmpty, IsArray, ArrayUnique } from 'class-validator';
+import { ForumRestrictableRole } from '../../common/enums/forum-restrictable-role.enum';
 
 export class CreateForumDto {
   @ApiProperty({ description: 'Titre du forum' })
@@ -33,13 +33,21 @@ export class CreateForumDto {
   @IsString()
   competences?: string;
 
-  @ApiPropertyOptional({ description: 'Tags séparés par virgule' })
+  @ApiPropertyOptional({ description: 'Tags séparés par virgule, exploitables en recherche' })
   @IsOptional()
   @IsString()
   tags?: string;
 
-  @ApiPropertyOptional({ enum: ForumPublic, description: 'Public cible du forum' })
+  @ApiPropertyOptional({
+    enum: ForumRestrictableRole,
+    isArray: true,
+    description:
+      'Rôles autorisés à voir et participer au forum. Omis ou vide = ouvert à tous les comptes connectés. ' +
+      'Les rôles administratifs (RP, AF, TI) gardent de toute façon un accès illimité.',
+  })
   @IsOptional()
-  @IsEnum(ForumPublic)
-  public?: ForumPublic;
+  @IsArray()
+  @ArrayUnique()
+  @IsEnum(ForumRestrictableRole, { each: true })
+  allowedRoles?: ForumRestrictableRole[];
 }

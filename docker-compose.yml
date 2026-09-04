@@ -650,6 +650,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
       PORT: 3015
+      # Image d'illustration des forums (arbitrage du 2026-09-04) — premier
+      # stockage binaire propre a ce service. Volume nomme dedie, jamais
+      # media_data (profile-service) ni les volumes d'un autre service.
+      FORUM_IMAGE_STORAGE_PATH: /app/storage/forum-images
+    volumes:
+      - community_path_forum_images:/app/storage/forum-images
     depends_on:
       postgres:
         condition: service_healthy
@@ -678,6 +684,11 @@ volumes:
   # Exercices, 2026-08-29 — premier stockage binaire propre a ce service.
   # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
   content_catalog_exercise_images:
+  # Images d'illustration des forums (community-path-service uniquement),
+  # developpement reel des Forums, 2026-09-04 — premier stockage binaire
+  # propre a ce service.
+  # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
+  community_path_forum_images:
 
 networks:
   visiomath_network:

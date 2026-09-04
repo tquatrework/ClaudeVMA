@@ -7,6 +7,8 @@ import { HealthModule } from './health/health.module';
 import { Forum } from './forums/entities/forum.entity';
 import { ForumComment } from './forums/entities/forum-comment.entity';
 import { ForumExclusion } from './forums/entities/forum-exclusion.entity';
+import { ForumCharterSetting } from './forums/entities/forum-charter-setting.entity';
+import { ForumCharterAcceptance } from './forums/entities/forum-charter-acceptance.entity';
 import { LearningPath } from './paths/entities/learning-path.entity';
 import { PathStep } from './paths/entities/path-step.entity';
 import { PathEnrollment } from './paths/entities/path-enrollment.entity';
@@ -25,6 +27,8 @@ import { Certificate } from './paths/entities/certificate.entity';
           Forum,
           ForumComment,
           ForumExclusion,
+          ForumCharterSetting,
+          ForumCharterAcceptance,
           LearningPath,
           PathStep,
           PathEnrollment,

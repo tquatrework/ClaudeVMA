@@ -5,43 +5,46 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { Forum } from './entities/forum.entity';
 import { ForumComment } from './entities/forum-comment.entity';
 import { ForumExclusion } from './entities/forum-exclusion.entity';
+import { ForumCharterSetting } from './entities/forum-charter-setting.entity';
+import { ForumCharterAcceptance } from './entities/forum-charter-acceptance.entity';
 import { CreateForumDto } from './dto/create-forum.dto';
 import { CreateForumCommentDto } from './dto/create-forum-comment.dto';
 import { CreateForumExclusionDto } from './dto/create-forum-exclusion.dto';
+import { UpdateForumCharterDto } from './dto/update-forum-charter.dto';
 import { UserRole } from '../common/enums/user-role.enum';
-import { ForumPublic } from '../common/enums/forum-public.enum';
-
-const FORUM_CREATOR_ROLES: string[] = [
-  UserRole.RESPONSABLE_PEDAGOGIQUE,
-  UserRole.ANIMATEUR_PEDAGOGIQUE,
-];
+import {
+  FORUM_ADMIN_BYPASS_ROLES,
+  FORUM_CHARTER_MANAGER_ROLES,
+  FORUM_CREATOR_ROLES,
+} from '../common/constants/forum-access.constants';
+import {
+  ForumImageStorageService,
+} from './services/forum-image-storage.service';
 
 /**
- * Determines whether a user role is allowed to access a forum based on its public setting.
+ * Un forum est visible/accessible à un rôle donné si :
+ *  - ce rôle fait partie des rôles administratifs à accès illimité, ou
+ *  - le forum n'a aucune restriction (allowedRoles vide/null), ou
+ *  - le rôle figure explicitement dans allowedRoles.
  */
-export function isRoleAllowedForForumPublic(userRole: string, forumPublic: ForumPublic): boolean {
-  if (forumPublic === ForumPublic.MIXTE) return true;
-  if (forumPublic === ForumPublic.ETUDIANT) {
-    return [
-      UserRole.ELEVE,
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.ANIMATEUR_PEDAGOGIQUE,
-      UserRole.TECHNICIEN_INFORMATIQUE,
-    ].includes(userRole as UserRole);
-  }
-  if (forumPublic === ForumPublic.PROFESSEUR) {
-    return [
-      UserRole.FORMATEUR,
-      UserRole.ANIMATEUR_PEDAGOGIQUE,
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.TECHNICIEN_INFORMATIQUE,
-    ].includes(userRole as UserRole);
-  }
-  return false;
+export function isRoleAllowedForForum(userRole: string, forum: Pick<Forum, 'allowedRoles'>): boolean {
+  if (FORUM_ADMIN_BYPASS_ROLES.includes(userRole)) return true;
+  if (!forum.allowedRoles || forum.allowedRoles.length === 0) return true;
+  return forum.allowedRoles.includes(userRole);
+}
+
+export interface CharterStatus {
+  content: string;
+  updatedAt: Date;
+}
+
+export interface CharterAcceptanceStatus {
+  accepted: boolean;
+  acceptedAt: Date | null;
 }
 
 @Injectable()
@@ -53,11 +56,21 @@ export class ForumsService {
     private readonly commentRepository: Repository<ForumComment>,
     @InjectRepository(ForumExclusion)
     private readonly exclusionRepository: Repository<ForumExclusion>,
+    @InjectRepository(ForumCharterSetting)
+    private readonly charterSettingRepository: Repository<ForumCharterSetting>,
+    @InjectRepository(ForumCharterAcceptance)
+    private readonly charterAcceptanceRepository: Repository<ForumCharterAcceptance>,
+    private readonly imageStorage: ForumImageStorageService,
   ) {}
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Forums
+  // ───────────────────────────────────────────────────────────────────────
+
   /**
-   * Create a new forum. Only RP and AP can create forums.
-   * RP-created forums are immediately published; AP-created forums need RP validation.
+   * Crée un nouveau forum. Réservé au RP (arbitrage du 2026-09-04 : l'AP
+   * perd ce droit). Un forum créé par un RP est visible dès sa création,
+   * aucun mécanisme de publication/validation n'existe plus.
    */
   async createForum(
     createForumDto: CreateForumDto,
@@ -65,10 +78,8 @@ export class ForumsService {
     creatorRole: string,
   ): Promise<Forum> {
     if (!FORUM_CREATOR_ROLES.includes(creatorRole)) {
-      throw new ForbiddenException('Seuls les RP et AP peuvent créer des forums');
+      throw new ForbiddenException('Seul le responsable pédagogique peut créer un forum');
     }
-
-    const isPublished = creatorRole === UserRole.RESPONSABLE_PEDAGOGIQUE;
 
     const newForum = this.forumRepository.create({
       title: createForumDto.title,
@@ -78,35 +89,79 @@ export class ForumsService {
       theme: createForumDto.theme,
       competences: createForumDto.competences,
       tags: createForumDto.tags,
-      public: createForumDto.public ?? ForumPublic.MIXTE,
+      allowedRoles:
+        createForumDto.allowedRoles && createForumDto.allowedRoles.length > 0
+          ? createForumDto.allowedRoles
+          : null,
       createdById: creatorId,
       createdByRole: creatorRole,
-      isPublished,
     });
 
     return this.forumRepository.save(newForum);
   }
 
   /**
-   * List forums. Returns only published forums unless the requester is RP or TI.
+   * Liste les forums visibles par l'appelant. Un compte dont le rôle n'est
+   * pas autorisé sur un forum restreint ne le voit pas apparaître (jamais un
+   * refus explicite qui révélerait son existence). `tags` filtre en plus sur
+   * une correspondance partielle, insensible à la casse, sur le champ tags.
    */
-  async findAllForums(requesterRole: string): Promise<Forum[]> {
-    const isPrivilegedViewer =
-      requesterRole === UserRole.RESPONSABLE_PEDAGOGIQUE ||
-      requesterRole === UserRole.TECHNICIEN_INFORMATIQUE;
+  async findAllForums(requesterRole: string, tags?: string[]): Promise<Forum[]> {
+    const queryBuilder = this.forumRepository
+      .createQueryBuilder('forum')
+      .orderBy('forum.createdAt', 'DESC');
 
-    const whereClause = isPrivilegedViewer ? {} : { isPublished: true };
+    if (!FORUM_ADMIN_BYPASS_ROLES.includes(requesterRole)) {
+      queryBuilder.andWhere(
+        new Brackets((qb) => {
+          qb.where('forum.allowedRoles IS NULL').orWhere(':requesterRole = ANY(forum.allowedRoles)', {
+            requesterRole,
+          });
+        }),
+      );
+    }
 
-    return this.forumRepository.find({
-      where: whereClause,
-      order: { createdAt: 'DESC' },
-    });
+    const cleanedTags = (tags ?? []).map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+    if (cleanedTags.length > 0) {
+      queryBuilder.andWhere(
+        new Brackets((qb) => {
+          cleanedTags.forEach((tag, index) => {
+            qb.orWhere(`forum.tags ILIKE :tag${index}`, { [`tag${index}`]: `%${tag}%` });
+          });
+        }),
+      );
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
-   * Add a comment to a forum.
-   * The forum must be published and the user must not be excluded.
-   * The user's role must match the forum's public setting.
+   * Récupère un forum accessible par le rôle donné, ou lève NotFoundException
+   * si le forum n'existe pas ou si le rôle n'y est pas autorisé — dans les
+   * deux cas la même erreur, pour ne jamais révéler l'existence d'un forum
+   * auquel l'appelant n'a pas accès.
+   */
+  private async getAccessibleForumOrThrow(
+    forumId: string,
+    requesterRole: string,
+    relations: string[] = [],
+  ): Promise<Forum> {
+    const forum = await this.forumRepository.findOne({ where: { id: forumId }, relations });
+    if (!forum || !isRoleAllowedForForum(requesterRole, forum)) {
+      throw new NotFoundException(`Forum ${forumId} introuvable`);
+    }
+    return forum;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Commentaires
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Ajoute un commentaire à un forum. Le rôle doit être autorisé sur ce
+   * forum, l'utilisateur ne doit pas être exclu, et il doit avoir accepté la
+   * charte de bonne conduite au préalable (arbitrage du 2026-09-04 : la
+   * lecture reste ouverte sans acceptation, seule la participation l'exige).
    */
   async addComment(
     forumId: string,
@@ -114,28 +169,22 @@ export class ForumsService {
     authorId: string,
     authorRole: string,
   ): Promise<ForumComment> {
-    const forum = await this.forumRepository.findOne({
-      where: { id: forumId },
-      relations: ['exclusions'],
-    });
-
-    if (!forum) {
-      throw new NotFoundException(`Forum ${forumId} introuvable`);
-    }
-
-    if (!forum.isPublished) {
-      throw new ForbiddenException('Ce forum n\'est pas encore publié');
-    }
-
-    if (!isRoleAllowedForForumPublic(authorRole, forum.public)) {
-      throw new ForbiddenException('Votre rôle ne vous permet pas d\'accéder à ce forum');
-    }
+    const forum = await this.getAccessibleForumOrThrow(forumId, authorRole, ['exclusions']);
 
     const isExcluded = forum.exclusions.some(
       (exclusion) => exclusion.excludedUserId === authorId,
     );
     if (isExcluded) {
       throw new ForbiddenException('Vous avez été exclu de ce forum');
+    }
+
+    const hasAcceptedCharter = await this.hasAcceptedCharter(authorId);
+    if (!hasAcceptedCharter) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'CHARTER_NOT_ACCEPTED',
+        message: 'Vous devez accepter la charte de bonne conduite avant de participer à un forum',
+      });
     }
 
     const newComment = this.commentRepository.create({
@@ -149,8 +198,31 @@ export class ForumsService {
   }
 
   /**
-   * Exclude a member from a forum.
-   * Only the forum owner (RP) or a RP can exclude members.
+   * Supprime un commentaire a posteriori. Réservé au RP (l'énoncé ne
+   * mentionne que ce rôle — pas d'extension à l'auteur ni à l'AP).
+   */
+  async deleteComment(forumId: string, commentId: string, moderatorRole: string): Promise<void> {
+    if (moderatorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Seul un responsable pédagogique peut supprimer un commentaire');
+    }
+
+    const comment = await this.commentRepository.findOne({ where: { id: commentId, forumId } });
+    if (!comment) {
+      throw new NotFoundException(`Commentaire ${commentId} introuvable sur ce forum`);
+    }
+
+    await this.commentRepository.remove(comment);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Exclusions
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Exclut un membre d'un forum. Réservé au propriétaire du forum ou à un
+   * RP. Mécanisme inchangé par l'arbitrage du 2026-09-04, complémentaire à
+   * la restriction par rôle (l'un exclut une personne précise, l'autre une
+   * catégorie entière).
    */
   async excludeMember(
     forumId: string,
@@ -189,5 +261,123 @@ export class ForumsService {
     });
 
     return this.exclusionRepository.save(newExclusion);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Charte de bonne conduite
+  // ───────────────────────────────────────────────────────────────────────
+
+  private async getOrCreateCharterSetting(): Promise<ForumCharterSetting> {
+    const existing = await this.charterSettingRepository.find({ take: 1 });
+    if (existing.length > 0) return existing[0];
+
+    const created = this.charterSettingRepository.create({ content: '' });
+    return this.charterSettingRepository.save(created);
+  }
+
+  async getCharter(): Promise<CharterStatus> {
+    const setting = await this.getOrCreateCharterSetting();
+    return { content: setting.content, updatedAt: setting.updatedAt };
+  }
+
+  async updateCharter(
+    dto: UpdateForumCharterDto,
+    updaterId: string,
+    updaterRole: string,
+  ): Promise<CharterStatus> {
+    if (!FORUM_CHARTER_MANAGER_ROLES.includes(updaterRole)) {
+      throw new ForbiddenException(
+        'Seul un responsable pédagogique ou un technicien informatique peut modifier la charte',
+      );
+    }
+
+    const setting = await this.getOrCreateCharterSetting();
+    setting.content = dto.content;
+    setting.updatedByUserId = updaterId;
+    const saved = await this.charterSettingRepository.save(setting);
+    return { content: saved.content, updatedAt: saved.updatedAt };
+  }
+
+  private async hasAcceptedCharter(userId: string): Promise<boolean> {
+    const acceptance = await this.charterAcceptanceRepository.findOne({ where: { userId } });
+    return acceptance !== null;
+  }
+
+  async getCharterAcceptanceStatus(userId: string): Promise<CharterAcceptanceStatus> {
+    const acceptance = await this.charterAcceptanceRepository.findOne({ where: { userId } });
+    return { accepted: acceptance !== null, acceptedAt: acceptance?.acceptedAt ?? null };
+  }
+
+  /**
+   * Accepte la charte pour l'utilisateur courant. Idempotent : accepter à
+   * nouveau alors que c'est déjà fait n'est pas une erreur, renvoie
+   * l'acceptation existante.
+   */
+  async acceptCharter(userId: string): Promise<{ status: CharterAcceptanceStatus; alreadyAccepted: boolean }> {
+    const existing = await this.charterAcceptanceRepository.findOne({ where: { userId } });
+    if (existing) {
+      return {
+        status: { accepted: true, acceptedAt: existing.acceptedAt },
+        alreadyAccepted: true,
+      };
+    }
+
+    const created = this.charterAcceptanceRepository.create({ userId });
+    const saved = await this.charterAcceptanceRepository.save(created);
+    return {
+      status: { accepted: true, acceptedAt: saved.acceptedAt },
+      alreadyAccepted: false,
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Image d'illustration
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Téléverse (ou remplace) l'image d'illustration d'un forum. Réservé au
+   * RP, sur le même principe que la création (seul rôle à administrer les
+   * forums désormais).
+   */
+  async uploadForumImage(forumId: string, buffer: Buffer, actorRole: string): Promise<Forum> {
+    if (actorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException("Seul un responsable pédagogique peut modifier l'image d'un forum");
+    }
+
+    const forum = await this.forumRepository.findOne({ where: { id: forumId } });
+    if (!forum) {
+      throw new NotFoundException(`Forum ${forumId} introuvable`);
+    }
+
+    const previousFilename = forum.imageFilename;
+    const stored = await this.imageStorage.store(buffer);
+
+    forum.imageFilename = stored.filename;
+    forum.imageMimeType = stored.mimeType;
+    const saved = await this.forumRepository.save(forum);
+
+    if (previousFilename) {
+      await this.imageStorage.remove(previousFilename);
+    }
+
+    return saved;
+  }
+
+  /**
+   * Lit l'image d'un forum. Réapplique la restriction de rôle du forum :
+   * un forum masqué pour ce rôle masque aussi son image (404, jamais 403).
+   */
+  async getForumImage(
+    forumId: string,
+    requesterRole: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const forum = await this.getAccessibleForumOrThrow(forumId, requesterRole);
+
+    if (!forum.imageFilename || !forum.imageMimeType) {
+      throw new NotFoundException(`Le forum ${forumId} n'a pas d'image d'illustration`);
+    }
+
+    const buffer = await this.imageStorage.read(forum.imageFilename);
+    return { buffer, mimeType: forum.imageMimeType };
   }
 }

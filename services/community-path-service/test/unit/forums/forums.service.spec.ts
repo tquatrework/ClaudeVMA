@@ -36,6 +36,7 @@ function buildMockRepo() {
     save: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
+    findAndCount: jest.fn(),
     count: jest.fn(),
     remove: jest.fn(),
     createQueryBuilder: jest.fn(),
@@ -221,6 +222,101 @@ describe('ForumsService', () => {
 
       // Une clause pour les tags, en plus (le RP n'a pas de clause de rôle).
       expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getForum()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getForum()', () => {
+    it('renvoie le détail du forum pour un rôle autorisé', async () => {
+      const forum = buildSampleForum({ allowedRoles: null });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      const result = await forumsService.getForum(FORUM_ID, UserRole.ELEVE);
+
+      expect(result.id).toBe(FORUM_ID);
+    });
+
+    it("lève NotFoundException si le forum n'existe pas", async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(forumsService.getForum(FORUM_ID, UserRole.ELEVE)).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
+      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(forumsService.getForum(FORUM_ID, UserRole.ELEVE)).rejects.toThrow(NotFoundException);
+    });
+
+    it('le RP voit le détail même sur un forum restreint (bypass admin)', async () => {
+      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      const result = await forumsService.getForum(FORUM_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.id).toBe(FORUM_ID);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getForumComments()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getForumComments()', () => {
+    it('renvoie une page de commentaires triés du plus ancien au plus récent', async () => {
+      const forum = buildSampleForum({ allowedRoles: null });
+      forumRepo.findOne.mockResolvedValue(forum);
+      const comments = [
+        { id: 'cmt-1', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date('2026-01-01') },
+        { id: 'cmt-2', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'b', createdAt: new Date('2026-01-02') },
+      ];
+      commentRepo.findAndCount = jest.fn().mockResolvedValue([comments, 2]);
+
+      const result = await forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+
+      expect(commentRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { forumId: FORUM_ID },
+          order: { createdAt: 'ASC' },
+          skip: 0,
+          take: 20,
+        }),
+      );
+      expect(result).toEqual({ data: comments, page: 1, limit: 20, total: 2, totalPages: 1 });
+    });
+
+    it('applique skip/take selon la page demandée', async () => {
+      const forum = buildSampleForum({ allowedRoles: null });
+      forumRepo.findOne.mockResolvedValue(forum);
+      commentRepo.findAndCount = jest.fn().mockResolvedValue([[], 45]);
+
+      const result = await forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 3, limit: 20 });
+
+      expect(commentRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 40, take: 20 }),
+      );
+      expect(result.totalPages).toBe(3);
+    });
+
+    it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
+      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(
+        forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

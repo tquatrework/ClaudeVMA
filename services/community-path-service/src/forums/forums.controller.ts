@@ -43,6 +43,7 @@ import {
   FORUM_IMAGE_MAX_SIZE_BYTES,
   FORUM_IMAGE_ALLOWED_MIME_TYPES,
 } from '../common/constants/forum-image.constants';
+import { parsePagination } from '../common/utils/pagination.util';
 
 @ApiTags('forums')
 @ApiBearerAuth()
@@ -167,6 +168,30 @@ export class ForumsController {
     };
   }
 
+  // Placée ici (après les routes littérales à un segment `charter` et
+  // `image-constraints`), et non juste après `findAllForums` : Express
+  // résout les routes dans leur ordre d'enregistrement, une déclaration plus
+  // haute de `:id` capturerait ces chemins littéraux comme un identifiant.
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Détail d\'un forum',
+    description:
+      'Même masquage 404 que GET /forums pour un rôle non autorisé sur ce forum — ne révèle jamais ' +
+      "l'existence d'un forum auquel l'appelant n'a pas accès.",
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiResponse({ status: 200, description: 'Détail du forum' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 404, description: 'Forum introuvable ou non accessible à ce rôle' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async findOneForum(
+    @Param('id') forumId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.getForum(forumId, currentUser.role);
+  }
+
   @Post(':id/image')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
@@ -249,6 +274,33 @@ export class ForumsController {
       currentUser.id,
       currentUser.role,
     );
+  }
+
+  @Get(':id/comments')
+  @ApiOperation({
+    summary: "Lister les commentaires d'un forum",
+    description:
+      "Ordre chronologique, du plus ancien au plus récent. Mêmes droits de lecture que le détail " +
+      'du forum (même masquage 404). Paginé dès l\'origine, mêmes conventions que le reste du projet ' +
+      '(page défaut 1, limit défaut 20, plafond 100).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page, défaut 1' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Taille de page, défaut 20, maximum 100' })
+  @ApiResponse({ status: 200, description: 'Page de commentaires' })
+  @ApiResponse({ status: 400, description: '"page"/"limit" invalide ou "limit" > 100' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 404, description: 'Forum introuvable ou non accessible à ce rôle' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async getForumComments(
+    @Param('id') forumId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    const pagination = parsePagination(page, limit);
+    return this.forumsService.getForumComments(forumId, currentUser.role, pagination);
   }
 
   @Delete(':id/comments/:commentId')

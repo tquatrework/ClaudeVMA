@@ -3494,18 +3494,41 @@ lieu d'un 403 qui révélerait l'existence du forum) — voir ces routes plus ba
 renvoie donc jamais lui-même de 403 pour ce motif : le filtrage se fait par omission dans la
 liste.
 
-**Points ouverts — aucune route de détail ni de lecture des commentaires n'existe dans cette PR.**
-Ce n'est pas un oubli de cette documentation : ni `GET /forums/:id` (lecture d'un forum unique)
-ni `GET /forums/:id/comments` (liste des commentaires d'un forum) n'ont été demandées par
-l'arbitrage du 2026-09-04, ni implémentées par la PR #230. Conséquences pour `front-developper` :
-- Un écran de liste doit s'appuyer uniquement sur `GET /forums` (qui renvoie déjà tous les champs
-  du `Forum`, y compris pour un affichage détaillé) — ne pas tenter un `GET /forums/:id`
-  individuel après un changement de restriction de rôle par le RP, il n'existe pas.
-- `POST /forums/:id/comments` permet de **publier** un commentaire, mais **rien ne permet
-  aujourd'hui de relire les commentaires déjà publiés sur un forum** — aucune route de lecture des
-  entités `ForumComment` n'existe. Un écran de fil de discussion n'est donc pas constructible tel
-  quel avec le contrat actuel ; à signaler à l'utilisateur si un écran « Forums » avec affichage
-  des commentaires est attendu dans l'immédiat.
+**Détail d'un forum, et lecture des commentaires — ajoutés le 2026-09-04, suite directe de la
+PR #230.** Le gap documenté ci-dessous (ancienne version de cette section) a été comblé : un écran
+de fil de discussion est désormais constructible avec le contrat actuel.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /forums/:id | Détail d'un forum unique | 🔒 | tous rôles autorisés sur ce forum | `200 Forum` (même forme que `GET /forums`) · `401` · `404` forum inexistant **ou** rôle non autorisé sur ce forum restreint (masquage, même erreur générique dans les deux cas) |
+| GET | /forums/:id/comments | Lister les commentaires d'un forum, **du plus ancien au plus récent** (ordre de lecture d'un fil de discussion — choix explicite du service, l'arbitrage ne précisait pas de sens) | 🔒 | mêmes droits que le détail du forum | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que ci-dessus |
+
+**Placement dans le contrôleur (important pour qui retouche ce fichier)** : `GET /forums/:id` est
+déclaré *après* les routes littérales à un seul segment (`GET /forums/charter`,
+`GET /forums/image-constraints`) — Nest/Express résolvent les routes dans leur ordre
+d'enregistrement, une déclaration plus haute de `:id` capturerait ces chemins littéraux comme un
+identifiant de forum.
+
+Query `GET /forums/:id/comments` : `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**) —
+même convention que le reste du projet (`GET /profiles/teachers/validated`,
+`GET /profiles/directory/by-role`) : plafond **refusé explicitement** (`400`, message en français
+citant la limite), jamais rogné en silence ; une page au-delà de la dernière renvoie
+`200 {data: [], total, totalPages}`, jamais `404`. Première utilisation de cette convention de
+pagination dans `community-path-service` — utilitaire partagé
+`src/common/utils/pagination.util.ts`, réutilisable pour un futur besoin paginé du même service
+(Parcours, Badges).
+
+**Masquage identique à `GET /forums`/`POST /forums/:id/comments`** : forum inexistant et rôle non
+autorisé sur un forum restreint renvoient la **même** `404` générique, jamais de `403` qui
+révélerait l'existence du forum.
+
+**Charte de bonne conduite : aucune nouvelle route nécessaire.** La charte est globale, pas
+propre à un forum (voir section « Charte de bonne conduite » ci-dessous) : `GET /forums/charter/acceptance`,
+déjà existante, indique déjà si l'appelant doit accepter la charte avant de commenter — sur
+**n'importe quel** forum, pas seulement celui consulté. Le front peut donc, en consultant un
+forum, appeler cette route une fois (indépendamment du forum affiché) pour savoir s'il doit
+proposer le bouton « Commenter » ou rediriger vers l'acceptation de la charte ; aucun appel scopé
+par `forumId` n'est nécessaire ni disponible.
 
 ### Charte de bonne conduite
 
@@ -3597,8 +3620,11 @@ Body : `{ "excludedUserId": "uuid (requis)", "reason": "string (optionnel)" }`. 
   `GET /forums/charter/acceptance` renvoie `accepted: false`, avec un chemin vers la lecture de la
   charte (`GET /forums/charter`) puis son acceptation (`POST /forums/charter/acceptance`).
 - Un forum qui disparaît de `GET /forums` (changement de restriction de rôle par le RP, ou
-  changement de rôle de l'appelant) doit disparaître silencieusement des écrans qui le listaient —
-  aucune route de détail à recharger, elle n'existe pas (voir « Points ouverts » ci-dessus).
-- Avant de construire un écran de fil de discussion affichant les commentaires existants d'un
-  forum, vérifier qu'une route de lecture a bien été ajoutée entre-temps — elle n'existe pas dans
-  le contrat décrit ici (PR #230).
+  changement de rôle de l'appelant) doit disparaître silencieusement des écrans qui le listaient ;
+  `GET /forums/:id` (ajoutée le 2026-09-04) applique le même masquage 404, donc un rechargement de
+  détail après un changement de restriction échoue proprement plutôt que de fuiter le forum.
+- Un écran de fil de discussion peut désormais s'appuyer sur `GET /forums/:id/comments` (ajoutée
+  le 2026-09-04, paginée) pour relire les commentaires déjà publiés — `POST /forums/:id/comments`
+  reste la seule route d'écriture.
+- Le bouton « Commenter » vs « Accepter la charte » se pilote avec `GET /forums/charter/acceptance`
+  (globale, pas besoin de la rappeler par forum) — voir section « Détail... » ci-dessus.

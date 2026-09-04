@@ -34,6 +34,8 @@ import { UserRole } from '../../../src/common/enums/user-role.enum';
 const mockForumsService = {
   createForum: jest.fn(),
   findAllForums: jest.fn(),
+  getForum: jest.fn(),
+  getForumComments: jest.fn(),
   addComment: jest.fn(),
   deleteComment: jest.fn(),
   excludeMember: jest.fn(),
@@ -152,6 +154,69 @@ describe('ForumsController', () => {
       const result = await controller.findAllForums(eleveUser);
 
       expect(result).toEqual([]);
+    });
+  });
+
+  // ─── GET /forums/:id ─────────────────────────────────────────────────────────
+
+  describe('GET /forums/:id — findOneForum()', () => {
+    it('délègue au service avec forumId et le rôle courant', async () => {
+      mockForumsService.getForum.mockResolvedValue(mockForum);
+
+      const result = await controller.findOneForum(FORUM_ID, eleveUser);
+
+      expect(mockForumsService.getForum).toHaveBeenCalledWith(FORUM_ID, UserRole.ELEVE);
+      expect(result).toEqual(mockForum);
+    });
+
+    it('propage NotFoundException (masquage) si le forum est introuvable ou non accessible', async () => {
+      mockForumsService.getForum.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+
+      await expect(controller.findOneForum(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── GET /forums/:id/comments ────────────────────────────────────────────────
+
+  describe('GET /forums/:id/comments — getForumComments()', () => {
+    const mockPage = {
+      data: [{ id: 'cmt-1', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date() }],
+      page: 1,
+      limit: 20,
+      total: 1,
+      totalPages: 1,
+    };
+
+    it('délègue au service avec forumId, le rôle courant et la pagination par défaut', async () => {
+      mockForumsService.getForumComments.mockResolvedValue(mockPage);
+
+      const result = await controller.getForumComments(FORUM_ID, eleveUser);
+
+      expect(mockForumsService.getForumComments).toHaveBeenCalledWith(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+      expect(result).toEqual(mockPage);
+    });
+
+    it('transmet page/limit fournis en query', async () => {
+      mockForumsService.getForumComments.mockResolvedValue(mockPage);
+
+      await controller.getForumComments(FORUM_ID, eleveUser, '2', '10');
+
+      expect(mockForumsService.getForumComments).toHaveBeenCalledWith(FORUM_ID, UserRole.ELEVE, { page: 2, limit: 10 });
+    });
+
+    it('lève BadRequestException si limit dépasse le plafond', async () => {
+      await expect(controller.getForumComments(FORUM_ID, eleveUser, '1', '101')).rejects.toThrow(BadRequestException);
+      expect(mockForumsService.getForumComments).not.toHaveBeenCalled();
+    });
+
+    it('lève BadRequestException si page/limit ne sont pas des entiers', async () => {
+      await expect(controller.getForumComments(FORUM_ID, eleveUser, 'abc')).rejects.toThrow(BadRequestException);
+    });
+
+    it('propage NotFoundException (masquage) si le forum est introuvable ou non accessible', async () => {
+      mockForumsService.getForumComments.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+
+      await expect(controller.getForumComments(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
     });
   });
 

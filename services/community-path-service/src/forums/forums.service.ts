@@ -24,6 +24,7 @@ import {
 import {
   ForumImageStorageService,
 } from './services/forum-image-storage.service';
+import { Pagination, PaginatedResult, buildPaginatedResult } from '../common/utils/pagination.util';
 
 /**
  * Un forum est visible/accessible à un rôle donné si :
@@ -136,6 +137,16 @@ export class ForumsService {
   }
 
   /**
+   * Détail d'un forum unique. Même masquage 404 que `findAllForums` pour un
+   * rôle non autorisé — voir `getAccessibleForumOrThrow`. Route ajoutée le
+   * 2026-09-04 (suite directe de la PR #230) : jusqu'ici seule la liste
+   * exposait la forme complète de l'entité, aucune route de détail n'existait.
+   */
+  async getForum(forumId: string, requesterRole: string): Promise<Forum> {
+    return this.getAccessibleForumOrThrow(forumId, requesterRole);
+  }
+
+  /**
    * Récupère un forum accessible par le rôle donné, ou lève NotFoundException
    * si le forum n'existe pas ou si le rôle n'y est pas autorisé — dans les
    * deux cas la même erreur, pour ne jamais révéler l'existence d'un forum
@@ -212,6 +223,31 @@ export class ForumsService {
     }
 
     await this.commentRepository.remove(comment);
+  }
+
+  /**
+   * Liste paginée des commentaires d'un forum, du plus ancien au plus récent
+   * (ordre de lecture d'un fil de discussion — choix explicite, l'arbitrage
+   * ne précisait pas de sens). Mêmes droits de lecture que le détail du forum
+   * (même masquage 404). Route ajoutée le 2026-09-04, gap réel signalé après
+   * la PR #230 : `POST /forums/:id/comments` permettait de publier sans
+   * jamais pouvoir relire les commentaires déjà publiés.
+   */
+  async getForumComments(
+    forumId: string,
+    requesterRole: string,
+    pagination: Pagination,
+  ): Promise<PaginatedResult<ForumComment>> {
+    await this.getAccessibleForumOrThrow(forumId, requesterRole);
+
+    const [data, total] = await this.commentRepository.findAndCount({
+      where: { forumId },
+      order: { createdAt: 'ASC' },
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+    });
+
+    return buildPaginatedResult(data, total, pagination);
   }
 
   // ───────────────────────────────────────────────────────────────────────

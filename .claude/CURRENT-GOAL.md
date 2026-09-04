@@ -26,6 +26,38 @@ existant conservé tel quel, complémentaire à la restriction par rôle.
 Séquencement : `community-path-service` d'abord (contrat), `front-developper` ensuite une fois le
 contrat stabilisé.
 
+**`community-path-service` mergé (PR #230), déployé, vérifié en HTTP direct par l'orchestrateur**
+(`/api/v1/forums`, `/api/v1/forums/charter`, `POST /forums`, `GET /forums/:id/comments` → `401`
+sans jeton, jamais `404` : bien exposés par la passerelle ; conteneur démarré proprement, toutes
+les routes attendues mappées dans les logs). Livré en trois passes (une même session, un seul PR
+final) :
+1. Modèle et routes de base : droit de création retiré à l'AP (RP seul), restriction par catégorie
+   de rôle avec masquage 404 (remplace l'enum `ForumPublic` trop étroit), image d'illustration
+   (nouveau volume `community_path_forum_images`, pipeline `sharp` vérifié hors mocks), charte de
+   bonne conduite globale (texte modifiable + acceptation horodatée par utilisateur, indépendante
+   du forum), suppression de commentaire réservée au RP. 152/152 tests verts.
+2. **Gap comblé avant que front ne parte dans le mur** : `docs/routes.md` n'avait **jamais** eu de
+   section `community-path-service` (gap déjà signalé une fois en septembre) — ajoutée avec le
+   contrat complet des routes Forums, c'est la seule source que `front-developper` doit utiliser.
+3. **Second gap réel trouvé en écrivant cette doc** : aucune route `GET /forums/:id` (détail) ni
+   `GET /forums/:id/comments` (lecture) n'existait — on pouvait publier un commentaire mais jamais
+   le relire, un fil de discussion était irréalisable. Ajoutées (même masquage 404, liste de
+   commentaires paginée page/limit, plus ancien en premier), documentées. 167 tests verts au final.
+   Vérifié : `GET /forums/charter/acceptance` (déjà existante, globale) suffit au front pour savoir
+   s'il doit proposer "Commenter" ou "Accepter la charte" sur n'importe quel forum, sans route
+   supplémentaire.
+
+**Point à trancher, laissé ouvert par l'agent** : le bypass "accès illimité à tout forum quel que
+soit son réglage" a été étendu par l'agent à AF+TI en plus du RP, sur sa propre appréciation —
+l'arbitrage garantissait explicitement seulement le RP. À confirmer avec l'utilisateur si besoin,
+non bloquant pour la suite.
+
+**Reste à faire** : déléguer `front-developper` maintenant que le contrat est stable et documenté
+dans `docs/routes.md` — écran de création RP (nouveaux champs : image, restriction de rôle),
+fil de discussion (détail + commentaires, désormais lisibles), gate charte avant de commenter,
+bouton de suppression de commentaire côté RP. Le texte réel de la charte n'est toujours pas fourni
+par l'utilisateur — ne pas bloquer dessus, le mécanisme fonctionne indépendamment du contenu.
+
 ---
 
 Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :

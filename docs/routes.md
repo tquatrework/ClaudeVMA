@@ -971,6 +971,7 @@ Vérifié contre la pile réelle pour la relation formateur (2026-08-12) : le fo
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
 | GET | /internal/profiles/:userId/display-name | **Résoudre le prénom et le nom d'une personne** pour un service appelant (arbitrage du 2026-08-12, « Resolution des noms entre services »). Servie **sans lecteur** et **sans filtrage champ par champ** : un formateur qui reçoit une proposition n'est encore lié à aucun élève, la route publique lui répondrait `403` et l'écran retomberait sur un UUID. **Contrat figé : `firstName` et `lastName`, jamais un champ de plus** — l'étendre en ferait une porte dérobée contournant le filtrage de visibilité pour tout service détenant `INTERNAL_SECRET`. Tout autre besoin passe par `GET /profiles/:userId` et ses règles de droit. `x-correlation-id` accepté et propagé. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {userId, firstName, lastName}` — valeurs `string\|null` · `400` `userId` non-UUID · `401` secret absent ou invalide · `404` `userId` inconnu de identity-access-service · `500` compte connu **sans** profil administratif (incohérence de données, jamais masquée) |
 | POST | /internal/profiles/display-names | **Variante par lot** de la route ci-dessus, pour qu'une liste de N lignes ne coûte pas N appels HTTP (une seule requête SQL). `POST` alors que l'opération est une **lecture** : le corps porte la liste, qu'une query string ne peut pas transporter sans limite de longueur — d'où le `200`, aucune ressource n'est créée. Body : `{userIds: string[]}`, UUID, **200 identifiants au maximum** (plafond déclaré, pas de défaut caché). Ordre d'entrée conservé, doublons réduits à une entrée. Un `userId` sans profil administratif est **absent** de la réponse plutôt que de faire échouer le lot (l'anomalie reste tracée côté serveur) : un identifiant douteux ne prive pas l'appelant des autres noms. Même contrat figé que la route unitaire. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {displayNames: [{userId, firstName, lastName}]}` · `400` liste vide, au-delà du plafond, ou identifiant non-UUID · `401` secret absent ou invalide |
+| GET | /internal/profiles/search-by-name?q= | **Rechercher des personnes par prénom/nom, tous rôles confondus** — arbitrage du 2026-09-04 (`docs/architecture/contacts-messagerie.md`, points 2 et 11 : fonctionnalité Contacts de `communication-service`). `q` **obligatoire** (`400` si absent, vide ou > 100 caractères), recherche **insensible à la casse** sur `firstName` **OU** `lastName` (`ILIKE '%q%'`), **plafonnée à 20 résultats** (plafond déclaré, jamais caché). **Distincte de `GET /profiles/directory/by-role`** (réservée aux rôles administratifs, filtrée par rôle) : cette route est **ouverte à tout appel interservices authentifié par `X-Internal-Secret`, sans aucune restriction de rôle** — ni sur l'appelant, ni sur les personnes trouvées. `communication-service` l'appelle pour le compte de n'importe quel utilisateur connecté cherchant n'importe quel autre. **Composition entre deux services** : le nom (`firstName`/`lastName`) vient de `profile-service`, le `loginIdentifier` de `identity-access-service` (`GET /internal/accounts/by-user-id/:userId`, un appel par profil trouvé, en parallèle). Un profil dont le `loginIdentifier` ne peut pas être résolu (compte supprimé côté identity-access-service, panne réseau ponctuelle) est **simplement absent** de la réponse — un identifiant douteux ne prive pas l'appelant des autres résultats. **Un résultat vide ou unique est un cas normal, pas une anomalie** : « tous les noms ne seront pas connus » (arbitrage du 2026-09-04, point 10). **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {results: [{userId, firstName, lastName, loginIdentifier}]}` — `results: []` si rien ne correspond · `400` `q` absent, vide, ou au-delà de 100 caractères · `401` secret absent ou invalide |
 | GET | /internal/relations/finance-owners/:studentId | **Résoudre les parents financeurs d'un élève** pour un appelant interservices — arbitrage du 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal », point 5). Premier consommateur : `dashboard-notification-service`, pour notifier les parents financeurs quand un professeur est validé pour leur élève. Réutilise directement `RelationsService.getFinanceOwnersByStudent` (liens **actifs** uniquement — un parent délié n'apparaît plus). **Périmètre volontairement étroit : `userId` uniquement**, jamais de nom ni de statut de lien — la résolution de nom passe séparément par `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`. **Déclarée avant** `GET /internal/relations/:viewerId/:targetId` ci-dessous dans le contrôleur : même nombre de segments, `finance-owners` serait sinon capturé comme `:viewerId`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {studentId, financeOwnerUserIds: string[]}` — liste vide si aucun parent financeur actif · `400` `studentId` non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/teachers/:studentId | **Résoudre les professeurs actifs d'un élève** pour un appelant interservices — arbitrage du 2026-09-01 (`docs/architecture.md` > « Refonte des Evaluations », point 4b : demande de correction humaine). Premier consommateur prévu : `learning-activity-service`, pour notifier les professeurs liés à l'élève (en plus du RP, notifié par ailleurs via son rôle) quand celui-ci demande une correction. Réutilise directement `RelationsService.getTeachersByStudent` (liens **actifs** uniquement — un professeur délié n'apparaît plus). **Périmètre volontairement étroit : `userId` uniquement**, jamais de nom ni de statut de lien — la résolution de nom passe séparément par `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`. **Déclarée avant** `GET /internal/relations/:viewerId/:targetId` ci-dessous dans le contrôleur, même précaution que `finance-owners` juste au-dessus : même nombre de segments, `teachers` serait sinon capturé comme `:viewerId`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {studentId, teacherUserIds: string[]}` — liste vide si aucun professeur actif · `400` `studentId` non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
@@ -1022,10 +1023,48 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 
 `ProfileUpdated` · `StudentLinkedToFinanceOwner` · `StudentUnlinkedFromFinanceOwner` · `TeacherLinkedToStudent` · `TeacherUnlinkedFromStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
 
+> **PUBLICATION RÉELLE SUR LE BUS DEPUIS LE 2026-09-04**, révision d'un texte antérieur qui disait
+> « le publieur est un journal structuré, pas encore un bus ». Constat : `communication-service`, en
+> construisant un consommateur pour dériver des contacts par défaut (arbitrage du 2026-09-04,
+> `docs/architecture/contacts-messagerie.md`, point 4), a lu directement le stream Redis réel
+> (`XRANGE visiomath:events`) et constaté qu'**aucun événement de `profile-service` n'y figurait
+> jamais** — `EventsService.publish()` ne faisait qu'un `logger.log()`.
+>
+> Corrigé en répliquant **exactement** le pattern outbox + `XADD` déjà construit pour
+> `teacher-request-service` (arbitrage du 2026-08-14) : `EventsService.publish()` écrit désormais
+> une ligne dans l'outbox transactionnel `domain_events` (`id`, `type`, `payload` jsonb,
+> `occurred_at`, `published_at` nullable) EN PLUS du log, et `EventPublisherService` balaie les
+> lignes non publiées toutes les **2 secondes** (lot de 50) pour un `XADD` sur le stream Redis
+> partagé `visiomath:events`, en marquant `published_at` dès le `XADD` réussi.
+>
+> **NON transactionnel avec l'écriture métier qui déclenche l'événement** (même limite assumée que
+> `teacher-request-service`, 2026-08-14 point 2) — la fenêtre de risque est celle qui existait déjà
+> entre la sauvegarde et l'ancien `logger.log()`, ce chantier ne l'aggrave pas.
+>
+> **`XADD` non transactionnel avec la mise à jour de `published_at`** : un crash entre les deux
+> republierait le même `eventId` au redémarrage. **Idempotence à la charge du consommateur**, comme
+> pour `dashboard-notification-service` (2026-08-14) — `communication-service` déduplique déjà par
+> `eventId` (`processed_events`, voir son rapport de session du 2026-09-04).
+>
+> **`REDIS_URL` reste optionnel** dans la configuration de `profile-service` (à la différence de
+> `INTERNAL_SECRET`) : son absence (environnements de test) ne bloque jamais le démarrage — les
+> lignes d'outbox s'accumulent simplement non publiées. Aucune indisponibilité Redis ne bloque non
+> plus le démarrage ni ne fait échouer une écriture métier (même correctif que celui trouvé le
+> 2026-09-04 côté `communication-service` : connexion non bloquante, fermeture explicite au
+> `onModuleDestroy`).
+>
+> **Format d'entrée `XADD`** (champs plats, pas un objet imbriqué) :
+> `eventId=<uuid de la ligne outbox> type=<ProfileEventType> occurredAt=<ISO 8601> payload=<JSON stringifié>`.
+
+> `StudentLinkedToFinanceOwner`. Charge utile : `{financeOwnerId, studentId, actorId}`.
+
 > `StudentUnlinkedFromFinanceOwner` (2026-08-11) est le **pendant** de `StudentLinkedToFinanceOwner` :
-> publier la liaison sans publier la rupture laisserait tout abonné sur une vue périmée. Aucun service
-> ne consomme aujourd'hui l'un ni l'autre — le publieur est un journal structuré, pas encore un bus.
+> publier la liaison sans publier la rupture laisserait tout abonné sur une vue périmée.
 > Charge utile : `{financeOwnerId, studentId, actorId, endedAt}`.
+
+> `TeacherLinkedToStudent`. Charge utile : `{teacherId, studentId, isPrincipalTeacher, actorId}` —
+> `actorId` vaut `null` sur le chemin système (`POST /internal/create-teacher-student-relation`,
+> validation RP via `teacher-request-service`).
 
 > `TeacherUnlinkedFromStudent` (2026-08-12) est le **pendant** de `TeacherLinkedToStudent`, pour la
 > même raison — et ici la vue périmée porterait des **droits** (statistiques, archives pédagogiques),
@@ -1033,6 +1072,17 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 > **rien**, sans quoi un abonné compterait deux fins pour une seule décision.
 > Charge utile : `{teacherId, studentId, actorId, endedAt, reason}` — `reason` vaut `null` quand le RP
 > n'en a pas consigné.
+
+> `AnimatorLinkedToTeacher` (2026-08-11). Charge utile : `{animatorId, teacherId, actorId}`.
+>
+> **AUCUN PENDANT `Unlinked` N'EXISTE POUR CE LIEN** — gap réel constaté le 2026-09-04, distinct
+> du chantier de publication ci-dessus : `AnimatorTeacherLink` ne porte ni `endedAt`, ni aucune
+> route de rupture (`RelationsController` n'expose que `POST`/`GET`, jamais de `DELETE` pour ce
+> lien précis, à la différence des liens financeur↔élève et élève↔formateur). Un abonné qui
+> attendrait `AnimatorUnlinkedFromTeacher` (ou équivalent) ne le recevra donc **jamais** — pas un
+> bug de publication, une action qui n'existe simplement pas encore côté `profile-service`. Hors
+> périmètre du présent chantier (publication fiable d'événements déjà émis) : construire cette
+> rupture serait une nouvelle fonctionnalité métier, non demandée ici.
 
 ---
 
@@ -2014,25 +2064,31 @@ Retour recherche par nom : `{results: [{userId, firstName, lastName, loginIdenti
 - `404` (jamais `403`) quand l'appelant n'est pas partie au contact/à la demande visée — même
   discipline de masquage que partout ailleurs dans ce projet.
 
-**Blocages identifiés côté `profile-service` — à lever avant que les contacts par défaut
-fonctionnent réellement** (voir aussi `docs/services/communication-service.md`) :
-1. `profile-service` ne publie **aucun** événement sur le stream Redis `visiomath:events`
-   aujourd'hui (vérifié le 2026-09-04 par `XRANGE` réel : seuls `teacher-request-service`,
-   `calendar-service` et `learning-activity-service` y publient). `TeacherLinkedToStudent`,
-   `StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` (et leurs pendants `Unlinked`,
-   ignorés côté consommateur par choix — un contact ne se rompt jamais automatiquement) restent
-   pour l'instant un « journal structuré » interne à `profile-service`, jamais `XADD`é. Le
-   consommateur (`RelationEventConsumerService`, groupe `communication-service`, démarré à `0`,
-   dédupliqué par `eventId`) est écrit et prêt, mais restera inactif tant que `profile-service` ne
-   réplique pas le pattern outbox + `XADD` déjà utilisé par `teacher-request-service`.
-2. Aucune route `GET /internal/profiles/search-by-name` n'existe côté `profile-service` — requise
-   pour `GET /contacts/search/by-name`. Contrat attendu, à confirmer avec `profile-service` :
-   `X-Internal-Secret`, `?q=`, réponse `{results: [{userId, firstName, lastName, loginIdentifier}]}`
-   (composé avec `identity-access-service` côté `profile-service`, sur le modèle de ce qu'il fait
-   déjà pour `loginIdentifier` dans `GET /profiles/:userId`).
-3. Le format exact de `GET /internal/accounts/by-login-identifier` (identity-access-service) n'est
-   pas confirmé — supposé `{userId, loginIdentifier, role}` par analogie avec
-   `GET /internal/accounts/by-user-id/:userId`, non vérifié empiriquement.
+**Blocages côté `profile-service` — LEVÉS le 2026-09-04** (session `profile-service` du même jour,
+voir `docs/services/profile-service.md` et `.claude/reports/profile-service-2026-09-04.md`) :
+1. **Publication réelle résolue.** `profile-service` réplique désormais le pattern outbox + `XADD`
+   (table `domain_events`, balayeur `EventPublisherService`, toutes les 2 secondes) déjà utilisé
+   par `teacher-request-service` — voir « Événements publiés » plus haut dans ce fichier pour le
+   détail complet (charge utile exacte, idempotence côté consommateur, dégradation sans `REDIS_URL`).
+   `TeacherLinkedToStudent`, `StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` (et les
+   pendants `Unlinked` qui existent réellement — voir plus bas) sont désormais publiés sur
+   `visiomath:events`. `RelationEventConsumerService` (côté `communication-service`) peut donc
+   consommer ces événements sans modification.
+   **Point d'attention non résolu par ce chantier, distinct de la publication** : `AnimatorLinkedToTeacher`
+   **n'a aucun pendant `Unlinked`** — `profile-service` n'a aujourd'hui aucune route de rupture pour
+   le lien AP↔formateur (voir la note dédiée sous « Événements publiés »). `RelationEventConsumerService`
+   qui ignore ce pendant par choix (« un contact ne se rompt jamais automatiquement ») n'est donc de
+   toute façon pas affecté, mais un futur besoin de rupture de ce lien précis resterait à construire
+   côté `profile-service`, hors périmètre de ce chantier.
+2. **`GET /internal/profiles/search-by-name` construite**, contrat conforme à ce qui était attendu :
+   `X-Internal-Secret`, `?q=` obligatoire, réponse `{results: [{userId, firstName, lastName,
+   loginIdentifier}]}` — voir la ligne dédiée dans le tableau `/internal/*` de la section
+   `profile-service` ci-dessus pour le détail complet (plafond, dégradation par résultat, absence de
+   restriction de rôle).
+3. Le format exact de `GET /internal/accounts/by-user-id/:userId` (identity-access-service) reste
+   supposé par analogie côté `profile-service` — c'est le contrat déjà consommé par
+   `IdentityAccessClient.findAccountByUserId`, mais son exactitude empirique reste à la charge
+   d'`identity-access-service` ou d'une vérification HTTP directe ; non revérifié dans ce chantier.
 
 ### Conversations
 

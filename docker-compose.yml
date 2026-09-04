@@ -228,6 +228,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_profile
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Chantier "publication reelle des evenements de relation" (2026-09-04,
+      # docs/architecture/contacts-messagerie.md) : EventsService.publish()
+      # ecrit desormais l'outbox domain_events ET la publie sur ce flux, via
+      # le meme pattern outbox + XADD que teacher-request-service (2026-08-14).
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       PORT: 3002
       # Medias attaches aux champs de profil (photo de profil).
       # Volume nomme : sans lui, les fichiers vivent dans la couche ephemere
@@ -245,6 +250,8 @@ services:
       - media_data:/app/storage/media
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - visiomath_network

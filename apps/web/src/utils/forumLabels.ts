@@ -46,6 +46,12 @@ export const FORUM_LABELS = {
   allForumsTab: 'Tous les forums',
   myForumsTab: 'Mes forums',
   emptyMine: "Vous n'avez créé aucun forum pour le moment.",
+  editForum: 'Modifier le forum',
+  editTitle: 'Modifier le forum',
+  editHelp: 'Seuls les champs modifiés sont pris en compte.',
+  saveChanges: 'Enregistrer les modifications',
+  saving: 'Enregistrement…',
+  updateForumError: 'Impossible de modifier ce forum.',
 } as const
 
 /** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */

@@ -27,11 +27,13 @@ import type {
   ForumCommentsPage,
   ForumExclusion,
   ForumImageConstraints,
+  UpdateForumPayload,
 } from '../types/forum'
 
 export type {
   Forum,
   CreateForumPayload,
+  UpdateForumPayload,
   ForumComment,
   CreateForumCommentPayload,
   ForumCommentsPage,
@@ -65,6 +67,18 @@ export async function fetchForums(params?: { tags?: string; mine?: boolean }): P
  */
 export async function fetchForum(forumId: string): Promise<Forum> {
   const { data } = await apiClient.get<Forum>(`/forums/${forumId}`)
+  return data
+}
+
+/**
+ * PATCH /forums/:id
+ * Édite les métadonnées d'un forum (titre, description, tags, `allowedRoles`) — l'image
+ * d'illustration n'est pas concernée, elle reste gérée par `uploadForumImage`. Seuls les champs
+ * fournis dans `payload` sont modifiés. Réservé au responsable pédagogique, quel que soit le
+ * créateur du forum. Renvoie l'entité `Forum` complète mise à jour, jamais un corps partiel.
+ */
+export async function updateForum(forumId: string, payload: UpdateForumPayload): Promise<Forum> {
+  const { data } = await apiClient.patch<Forum>(`/forums/${forumId}`, payload)
   return data
 }
 

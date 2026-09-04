@@ -7,6 +7,22 @@
 
 ## Besoin courant
 
+Édition des métadonnées d'un forum par le RP, demandée le 2026-09-04, après réflexion de
+l'utilisateur suite à la livraison du masquage RP (voir plus bas). Referme le point 1 laissé
+ouvert depuis le premier lot Forums — le masquage n'en était qu'une réponse partielle. Arbitrage
+complet persisté dans `docs/architecture/identite-profils-acces.md` ("Edition des metadonnees d'un
+forum").
+
+Résumé : nouvelle route d'édition (titre, description, tags, restriction de rôle — l'image reste
+gérée par sa propre route existante), ouverte à **tout RP**, pas seulement le créateur du forum
+(même principe déjà retenu pour le masquage, cohérence à conserver) ; un forum caché reste
+éditable. Séquencement identique aux lots précédents : `community-path-service` d'abord,
+`front-developper` ensuite (probablement en réutilisant `ForumCreateForm` en mode édition).
+
+Délégué le 2026-09-04 à `community-path-service`.
+
+---
+
 Développement réel des Forums, demandé le 2026-09-04 (suite directe du chantier menu ci-dessous,
 qui avait révélé des forums vides en prod). Spécification complète donnée par l'utilisateur.
 Arbitrage complet persisté dans `docs/architecture/identite-profils-acces.md` ("Developpement reel

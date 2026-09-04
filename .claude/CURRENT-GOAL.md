@@ -92,6 +92,38 @@ developpement des Forums, complements demandes le 2026-09-04").
 Délégué le 2026-09-04 : `community-path-service` d'abord (action de masquage réservée au RP, filtre
 de retrouvaille), `front-developper` ensuite (bouton "Cacher" dans `ForumModerationPanel`).
 
+**`community-path-service` mergé (PR #235), déployé, vérifié en HTTP direct.** Interrompu une fois
+en cours de route par une limite de taux API (« session limit », pas un échec du travail), relancé
+depuis là où il s'était arrêté (mise à jour de `docs/services/community-path-service.md`), rien de
+perdu. `POST /forums/:id/hide` (RP seul, idempotent, masquage strictement plus fort que le bypass
+admin RP+AF+TI — un forum caché est invisible même à AF/TI) + `GET /forums?mine=true` (tous statuts
+confondus, seul moyen pour le RP de retrouver ses forums cachés). 183 tests verts. Route `POST
+/forums/:id/hide` mappée dans les logs au démarrage, `401` (pas `404`) vérifié en HTTP direct contre
+`https://claudevma.visioprof.fr`.
+
+**`front-developper` mergé (PR #236), déployé, site vérifié `200` (y compris `/community/forums`).**
+Bouton "Cacher le forum" avec confirmation dans le panneau de modération RP de `ForumDetailPage`,
+badge "Caché" ; onglet "Mes forums" / "Tous les forums" (RP) sur `ForumCatalogPage` via `mine=true`,
+avec badge "Caché" sur les tuiles concernées. 57/57 tests dédiés verts, 0 régression (51 échecs
+pré-existants inchangés, comparaison `git stash`). Mergé et déployé sans nouvelle question, dans la
+continuité du niveau de preuve déjà établi pour ce chantier ("va jusqu'au merge inclus").
+
+**Chantier complément Forums (masquage RP) clos.** Nettoyage au passage : 2 branches distantes
+confirmées entièrement fusionnées (contenu vérifié, pas supposé) supprimées —
+`feat/community-path-forum-hide`, `feat/forum-hide-rp`.
+
+Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
+`feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
+inachevé de mi-août, jamais implémenté.
+
+**Récapitulatif des points encore ouverts sur les Forums** (aucun bloquant, à reprendre à la
+demande de l'utilisateur) :
+1. Pas de route d'édition des métadonnées d'un forum après création (titre/description/tags/
+   restriction de rôle) — seule l'image est remplaçable, et le masquage vient d'être livré comme
+   réponse partielle à ce point.
+2. Pas d'écran pour que le RP/TI écrive le texte de la charte — en attente du texte réel, jamais
+   fourni par l'utilisateur.
+
 ---
 
 Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :

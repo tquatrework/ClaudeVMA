@@ -4,13 +4,16 @@
  * Un sujet non `validated` (visible uniquement à son auteur et aux administrateurs) porte un badge
  * de statut explicite — jamais présenté comme un sujet normal. Le sujet système « Sujet général »
  * apparaît toujours en premier (tri déjà fait côté serveur).
+ *
+ * Chaque sujet affiche l'auteur de son premier message (`authorName`, ajouté le 2026-09-04) —
+ * « Auteur inconnu » si non résolu, jamais `authorId`.
  */
 
 import React from 'react'
 import { ErrorMessage } from '../ui/ErrorMessage'
 import { EmptyState } from '../ui/EmptyState'
 import { CatalogItemCard } from '../ui/CatalogItemCard'
-import { FORUM_LABELS, formatTopicStatusLabel } from '../../utils/forumLabels'
+import { FORUM_LABELS, formatForumAuthorLabel, formatTopicStatusLabel } from '../../utils/forumLabels'
 import type { ForumTopic } from '../../types/forum'
 
 interface ForumTopicListProps {
@@ -57,6 +60,7 @@ export function ForumTopicList({
                 key={topic.id}
                 id={topic.id}
                 title={topic.isDefault ? `📌 ${topic.title}` : topic.title}
+                description={`${FORUM_LABELS.authorPrefix} ${formatForumAuthorLabel(topic.authorName)}`}
                 onSelect={() => onSelect(topic)}
                 rightBadge={
                   statusLabel ? (

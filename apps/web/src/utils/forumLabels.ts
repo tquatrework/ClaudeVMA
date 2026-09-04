@@ -5,8 +5,10 @@
 
 import { formatFileSize } from './fileSize'
 import { formatAcceptedImageFormats } from './profileAvatar'
+import { formatFullName } from './nameFormat'
 import { getRoleLabel } from './role'
 import type { ForumRestrictableRole, ForumTopicStatus } from '../types/forum'
+import type { PersonName } from '../types/profile'
 
 export const FORUM_LABELS = {
   emptyList: 'Aucun forum disponible pour le moment.',
@@ -76,6 +78,10 @@ export const FORUM_LABELS = {
   pendingTopicsModerationTitle: 'Sujets en attente de validation',
   emptyPendingTopics: 'Aucun sujet en attente de validation.',
   backToTopics: '← Retour aux sujets',
+
+  // ─── Auteur résolu (`authorName`), ajouté le 2026-09-04 ───────────────────
+  authorUnknown: 'Auteur inconnu',
+  authorPrefix: 'Par',
 } as const
 
 /** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */
@@ -100,4 +106,15 @@ export function formatTopicStatusLabel(status: ForumTopicStatus): string | null 
   if (status === 'pending_validation') return FORUM_LABELS.topicStatusPending
   if (status === 'rejected') return FORUM_LABELS.topicStatusRejected
   return null
+}
+
+/**
+ * Libellé d'auteur pour un `ForumComment`/`ForumTopic` : prénom + nom résolus, ou
+ * `FORUM_LABELS.authorUnknown` — `authorName` vaut `null`/`undefined` pour deux cas indistincts
+ * côté front (`profile-service` injoignable ou nom introuvable, 2026-09-04). **Jamais**
+ * `authorId` : aucun UUID ne doit être affiché à un utilisateur (règle du 2026-08-09).
+ */
+export function formatForumAuthorLabel(authorName: PersonName | null | undefined): string {
+  const fullName = formatFullName(authorName?.firstName, authorName?.lastName)
+  return fullName || FORUM_LABELS.authorUnknown
 }

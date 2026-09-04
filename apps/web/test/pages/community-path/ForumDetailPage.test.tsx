@@ -15,6 +15,8 @@
  * - Panneau d'image et lien de modération visibles seulement pour le RP
  * - Bouton "Cacher le forum" réservé au RP
  * - Édition des métadonnées d'un forum par le RP (PATCH /forums/:id)
+ * - Auteur d'un sujet affiché dans la liste (prénom + nom résolus), ou « Auteur inconnu » quand
+ *   `authorName` vaut `null` (2026-09-04) — jamais l'UUID `authorId`
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -107,6 +109,7 @@ const DEFAULT_TOPIC: ForumTopic = {
   rejectionReason: null,
   createdAt: '2026-06-17T09:00:00Z',
   updatedAt: '2026-06-17T09:00:00Z',
+  authorName: { firstName: 'Marie', lastName: 'Responsable' },
 }
 
 const PENDING_TOPIC: ForumTopic = {
@@ -117,6 +120,14 @@ const PENDING_TOPIC: ForumTopic = {
   authorRole: 'eleve',
   status: 'pending_validation',
   isDefault: false,
+  authorName: { firstName: 'Camille', lastName: 'Durand' },
+}
+
+const TOPIC_UNKNOWN_AUTHOR: ForumTopic = {
+  ...PENDING_TOPIC,
+  id: 'topic-unknown-author',
+  title: 'Sujet sans auteur résolu',
+  authorName: null,
 }
 
 function buildTopicsPage(topics: ForumTopic[]) {
@@ -386,5 +397,27 @@ describe('ForumDetailPage', () => {
       expect(screen.getByText('Forum Trigonométrie (mis à jour)')).toBeDefined()
     })
     expect(screen.getByText('Nouvelle description.')).toBeDefined()
+  })
+
+  it("affiche le prénom et le nom résolus de l'auteur d'un sujet", async () => {
+    mockFetchForumTopics.mockResolvedValue(buildTopicsPage([DEFAULT_TOPIC, PENDING_TOPIC]))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Question sur les intégrales')).toBeDefined()
+    })
+    expect(screen.getByText(/Par Camille Durand/)).toBeDefined()
+    expect(screen.queryByText('student-1')).toBeNull()
+  })
+
+  it("affiche « Auteur inconnu » pour un sujet dont authorName vaut null, sans jamais afficher l'UUID", async () => {
+    mockFetchForumTopics.mockResolvedValue(buildTopicsPage([DEFAULT_TOPIC, TOPIC_UNKNOWN_AUTHOR]))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Sujet sans auteur résolu')).toBeDefined()
+    })
+    expect(screen.getByText(/Par Auteur inconnu/)).toBeDefined()
+    expect(screen.queryByText('student-1')).toBeNull()
   })
 })

@@ -46,11 +46,14 @@ export type {
  * GET /forums
  * Liste les forums accessibles à l'appelant. Un forum restreint à des rôles n'incluant pas celui
  * de l'appelant (et qui n'est pas administratif) est simplement absent de la réponse — jamais un
- * item masqué, jamais un 403.
+ * item masqué, jamais un 403. Un forum caché (`isHidden`) est absent de la même façon pour tout le
+ * monde sauf le RP.
  *
  * `tags` : filtre optionnel, chaîne séparée par virgules, correspondance partielle `OR`.
+ * `mine` : `true` = ne renvoie que les forums créés par l'appelant, tous statuts confondus, y
+ * compris ses propres forums cachés — combinable avec `tags` (ajouté le 2026-09-04).
  */
-export async function fetchForums(params?: { tags?: string }): Promise<Forum[]> {
+export async function fetchForums(params?: { tags?: string; mine?: boolean }): Promise<Forum[]> {
   const { data } = await apiClient.get<Forum[]>('/forums', { params })
   return data
 }
@@ -62,6 +65,17 @@ export async function fetchForums(params?: { tags?: string }): Promise<Forum[]> 
  */
 export async function fetchForum(forumId: string): Promise<Forum> {
   const { data } = await apiClient.get<Forum>(`/forums/${forumId}`)
+  return data
+}
+
+/**
+ * POST /forums/:id/hide
+ * Masque un forum — le retire de la lecture de tout le monde sauf du RP. Réservé au responsable
+ * pédagogique. Idempotent : masquer un forum déjà caché renvoie l'entité telle quelle. Aucune
+ * route de réouverture n'existe.
+ */
+export async function hideForum(forumId: string): Promise<Forum> {
+  const { data } = await apiClient.post<Forum>(`/forums/${forumId}/hide`)
   return data
 }
 

@@ -30,6 +30,7 @@ import {
   createForumComment,
   deleteForumComment,
   fetchForumImageConstraints,
+  hideForum,
 } from '../../../src/api/forums'
 import ForumDetailPage from '../../../src/pages/ForumDetailPage'
 import type { Forum, ForumComment } from '../../../src/types/forum'
@@ -42,6 +43,7 @@ const mockAcceptForumCharter = vi.mocked(acceptForumCharter)
 const mockCreateForumComment = vi.mocked(createForumComment)
 const mockDeleteForumComment = vi.mocked(deleteForumComment)
 const mockFetchForumImageConstraints = vi.mocked(fetchForumImageConstraints)
+const mockHideForum = vi.mocked(hideForum)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -83,6 +85,9 @@ const FORUM: Forum = {
   createdByRole: 'responsable_pedagogique',
   imageFilename: null,
   imageMimeType: null,
+  isHidden: false,
+  hiddenAt: null,
+  hiddenByUserId: null,
   createdAt: '2026-06-17T09:00:00Z',
   updatedAt: '2026-06-17T09:00:00Z',
 }
@@ -263,5 +268,62 @@ describe('ForumDetailPage', () => {
     })
     expect(screen.queryByText("Image d'illustration")).toBeNull()
     expect(screen.queryByRole('button', { name: /ouvrir le panneau de modération/i })).toBeNull()
+  })
+
+  it('le RP voit le bouton "Cacher le forum" et le déclenche après confirmation', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockHideForum.mockResolvedValue({ ...FORUM, isHidden: true, hiddenAt: '2026-09-04T00:00:00Z' })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /cacher le forum/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /cacher le forum/i }))
+
+    await waitFor(() => {
+      expect(mockHideForum).toHaveBeenCalledWith('forum-1')
+    })
+    expect(screen.getByText('Caché')).toBeDefined()
+  })
+
+  it('le bouton "Cacher le forum" n\'appelle pas l\'API si la confirmation est annulée', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /cacher le forum/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /cacher le forum/i }))
+
+    expect(mockHideForum).not.toHaveBeenCalled()
+  })
+
+  it("n'affiche pas le bouton 'Cacher le forum' pour un élève", async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Forum Trigonométrie')).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: /cacher le forum/i })).toBeNull()
+  })
+
+  it('un forum déjà caché affiche le badge et masque le bouton "Cacher"', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchForum.mockResolvedValue({
+      ...FORUM,
+      isHidden: true,
+      hiddenAt: '2026-09-04T00:00:00Z',
+      hiddenByUserId: 'rp-1',
+    })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Caché')).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: /^cacher le forum$/i })).toBeNull()
   })
 })

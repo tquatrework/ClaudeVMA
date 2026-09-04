@@ -15,6 +15,8 @@
  *   POST   /forums/:id/comments
  *   DELETE /forums/:id/comments/:commentId  (RP uniquement)
  *   POST   /forums/:id/image                (RP uniquement)
+ *   POST   /forums/:id/hide                 (RP uniquement — masquage définitif, complément du
+ *                                             2026-09-04)
  */
 
 import React from 'react'
@@ -23,6 +25,7 @@ import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import { useForumDetail } from '../hooks/community/useForumDetail'
 import { useForumComments } from '../hooks/community/useForumComments'
+import { useForumHide } from '../hooks/community/useForumHide'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { ForumThumbnail } from '../components/community/ForumThumbnail'
@@ -56,6 +59,7 @@ export default function ForumDetailPage() {
     deleteError,
     deleteComment,
   } = useForumComments(forumId)
+  const { isHiding, hideError, hide } = useForumHide()
 
   if (!forumId) {
     return (
@@ -101,6 +105,12 @@ export default function ForumDetailPage() {
   const tagList = forum.tags
     ? forum.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
     : []
+
+  const handleHideForum = async () => {
+    if (!window.confirm(FORUM_LABELS.hideForumConfirm)) return
+    const updatedForum = await hide(forum.id)
+    if (updatedForum) setForum(updatedForum)
+  }
 
   return (
     <Layout>
@@ -152,6 +162,11 @@ export default function ForumDetailPage() {
           >
             {formatAllowedRolesLabel(forum.allowedRoles)}
           </span>
+          {forum.isHidden && (
+            <span className="text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">
+              {FORUM_LABELS.hiddenBadge}
+            </span>
+          )}
         </div>
 
         {isRp && (
@@ -169,15 +184,32 @@ export default function ForumDetailPage() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
             <p className="text-sm font-semibold text-yellow-800 mb-2">Modération</p>
             <p className="text-xs text-yellow-700">
-              En tant que responsable pédagogique, vous pouvez exclure des membres de ce forum.
+              En tant que responsable pédagogique, vous pouvez exclure des membres de ce forum
+              {!forum.isHidden && ' ou le cacher à tous'}.
             </p>
-            <button
-              type="button"
-              onClick={() => navigate(`/community/forums/${forum.id}/moderation`)}
-              className="mt-2 px-3 py-1 text-xs font-medium text-yellow-800 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 transition-colors"
-            >
-              Ouvrir le panneau de modération
-            </button>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/community/forums/${forum.id}/moderation`)}
+                className="px-3 py-1 text-xs font-medium text-yellow-800 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 transition-colors"
+              >
+                Ouvrir le panneau de modération
+              </button>
+              {!forum.isHidden && (
+                <button
+                  type="button"
+                  onClick={() => void handleHideForum()}
+                  disabled={isHiding}
+                  className="px-3 py-1 text-xs font-medium text-red-800 bg-red-100 border border-red-300 rounded-md hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isHiding ? FORUM_LABELS.hidingForum : FORUM_LABELS.hideForum}
+                </button>
+              )}
+            </div>
+            {hideError && <p className="text-xs text-red-600 mt-2">{hideError}</p>}
+            {forum.isHidden && (
+              <p className="text-xs text-red-700 mt-2">{FORUM_LABELS.hiddenNotice}</p>
+            )}
           </div>
         )}
 

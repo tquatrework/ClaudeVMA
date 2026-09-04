@@ -77,6 +77,18 @@ Délégué le 2026-09-04, en parallèle : `profile-service` (points 1 et 2) et
 `identity-access-service` (point 3). `dashboard-notification-service` et `front-developper`
 restent à déléguer ensuite.
 
+**Point 3 traité (PR #258, mergée, docs uniquement) — écart réel trouvé, pas une simple
+confirmation.** `identity-access-service` a vérifié en HTTP direct contre la pile réelle
+(compte de test) : `GET /internal/accounts/by-login-identifier` renvoie `{userId, role}`,
+**sans champ `loginIdentifier`** — contrairement à l'hypothèse `{userId, loginIdentifier, role}`
+faite par `communication-service`. `docs/routes.md` corrigé pour refléter le contrat réel.
+**Correctif encore à faire côté `communication-service`** : si `IdentityAccessClient` lit
+`response.loginIdentifier`, la recherche par identifiant exact affichera un identifiant manquant
+en confirmation avant envoi de la demande — à vérifier et corriger (le demandeur connaît déjà
+l'identifiant qu'il a saisi, un simple repli sur la valeur d'entrée peut suffire). Pas encore
+délégué — en attente du retour de `profile-service` (points 1 et 2) pour regrouper les
+correctifs `communication-service` en une seule délégation plutôt que deux.
+
 ---
 
 Afficher l'auteur de chaque commentaire dans un sujet de forum, demandé le 2026-09-04. Aucun UUID

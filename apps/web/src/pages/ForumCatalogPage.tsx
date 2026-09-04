@@ -8,9 +8,13 @@
  * optionnelle par catégorie de rôle et charte de bonne conduite.
  *
  * Routes API consommées :
- *   GET  /forums                (recherche par tags)
+ *   GET  /forums                (recherche par tags, et par `mine` — onglet « Mes forums »)
  *   POST /forums                (création — RP uniquement)
  *   POST /forums/:id/image      (illustration, juste après création — RP uniquement)
+ *
+ * Onglet « Mes forums » (RP uniquement, complément du 2026-09-04) : seul moyen de retrouver un
+ * forum caché (`POST /forums/:id/hide`, action disponible depuis `ForumDetailPage`) — `GET /forums`
+ * sans `mine=true` ne les renvoie jamais.
  */
 
 import React, { useState } from 'react'
@@ -39,6 +43,7 @@ export default function ForumCatalogPage() {
   const [appliedTagFilter, setAppliedTagFilter] = useState('')
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false)
   const [justCreatedForum, setJustCreatedForum] = useState<Forum | null>(null)
+  const [viewMode, setViewMode] = useState<'all' | 'mine'>('all')
 
   const {
     data: forumList,
@@ -46,8 +51,12 @@ export default function ForumCatalogPage() {
     error: loadError,
     refetch,
   } = useAsyncData(
-    () => fetchForums({ tags: appliedTagFilter || undefined }),
-    [appliedTagFilter],
+    () =>
+      fetchForums({
+        tags: appliedTagFilter || undefined,
+        mine: viewMode === 'mine' ? true : undefined,
+      }),
+    [appliedTagFilter, viewMode],
     { fallbackErrorMessage: FORUM_LABELS.loadError },
   )
 
@@ -119,6 +128,33 @@ export default function ForumCatalogPage() {
           </div>
         )}
 
+        {canCreateForum && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('all')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                viewMode === 'all'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {FORUM_LABELS.allForumsTab}
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('mine')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                viewMode === 'mine'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {FORUM_LABELS.myForumsTab}
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleSearchSubmit} className="flex gap-3">
           <input
             type="text"
@@ -139,7 +175,9 @@ export default function ForumCatalogPage() {
         {loadError && <ErrorMessage message={loadError} />}
 
         {!isLoading && !loadError && (forumList?.length ?? 0) === 0 && (
-          <EmptyState message={FORUM_LABELS.emptyList} />
+          <EmptyState
+            message={viewMode === 'mine' ? FORUM_LABELS.emptyMine : FORUM_LABELS.emptyList}
+          />
         )}
 
         {!isLoading && !loadError && forumList && forumList.length > 0 && (
@@ -160,15 +198,22 @@ export default function ForumCatalogPage() {
                     : []),
                 ]}
                 rightBadge={
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded font-medium ${
-                      forum.allowedRoles && forum.allowedRoles.length > 0
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-green-100 text-green-700'
-                    }`}
-                  >
-                    {formatAllowedRolesLabel(forum.allowedRoles)}
-                  </span>
+                  <>
+                    {forum.isHidden && (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">
+                        {FORUM_LABELS.hiddenBadge}
+                      </span>
+                    )}
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        forum.allowedRoles && forum.allowedRoles.length > 0
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}
+                    >
+                      {formatAllowedRolesLabel(forum.allowedRoles)}
+                    </span>
+                  </>
                 }
               />
             ))}

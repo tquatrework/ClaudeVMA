@@ -36,6 +36,16 @@ export const FORUM_LABELS = {
   replaceImage: "Remplacer l'image",
   uploadingImage: 'Envoi…',
   imageUploadError: "Impossible d'envoyer l'image.",
+  hideForum: 'Cacher le forum',
+  hidingForum: 'Masquage…',
+  hideForumConfirm:
+    "Cacher ce forum ? Il ne sera plus visible par personne, sauf vous en tant que responsable pédagogique. Cette action ne peut pas être annulée depuis l'application.",
+  hideForumError: 'Impossible de cacher ce forum.',
+  hiddenBadge: 'Caché',
+  hiddenNotice: "Ce forum est caché : il n'est visible que par vous.",
+  allForumsTab: 'Tous les forums',
+  myForumsTab: 'Mes forums',
+  emptyMine: "Vous n'avez créé aucun forum pour le moment.",
 } as const
 
 /** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */

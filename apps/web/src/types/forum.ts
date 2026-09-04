@@ -16,6 +16,9 @@
  * - Une charte de bonne conduite, unique et globale (pas de versionnage), doit être acceptée avant
  *   de publier un commentaire — pas avant de lire.
  * - Suppression d'un commentaire réservée au RP.
+ * - Depuis le 2026-09-04 (complément) : un RP peut cacher un forum (`isHidden`), invisible ensuite
+ *   à tout le monde sauf lui. Aucune route de réouverture — `GET /forums?mine=true` est l'unique
+ *   moyen de retrouver ses forums cachés.
  */
 
 /** Les 4 seules valeurs acceptées pour `allowedRoles` — jamais les rôles administratifs, qui
@@ -47,6 +50,12 @@ export interface Forum {
    * À traiter uniquement comme un indicateur « ce forum a-t-il une image ». */
   imageFilename: string | null
   imageMimeType: string | null
+  /** Masquage RP (2026-09-04) : `true` = invisible pour tout le monde sauf le RP. Non destructif,
+   * aucune route de réouverture n'existe. */
+  isHidden: boolean
+  hiddenAt: string | null
+  /** UUID technique — jamais destiné à être affiché (règle du 2026-08-09). */
+  hiddenByUserId: string | null
   createdAt: string
   updatedAt: string
 }

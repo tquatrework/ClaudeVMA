@@ -90,6 +90,9 @@ const OPEN_FORUM: Forum = {
   createdByRole: 'responsable_pedagogique',
   imageFilename: null,
   imageMimeType: null,
+  isHidden: false,
+  hiddenAt: null,
+  hiddenByUserId: null,
   createdAt: '2026-06-17T09:00:00Z',
   updatedAt: '2026-06-17T09:00:00Z',
 }
@@ -238,6 +241,49 @@ describe('ForumCatalogPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Impossible de charger les forums/)).toBeDefined()
+    })
+  })
+
+  it("le RP voit l'onglet 'Mes forums' et bascule le chargement en mine=true", async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /mes forums/i })).toBeDefined()
+    })
+    expect(mockFetchForums).toHaveBeenCalledWith({ tags: undefined, mine: undefined })
+
+    await userEvent.click(screen.getByRole('button', { name: /mes forums/i }))
+
+    await waitFor(() => {
+      expect(mockFetchForums).toHaveBeenCalledWith({ tags: undefined, mine: true })
+    })
+  })
+
+  it("un élève ne voit pas l'onglet 'Mes forums'", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Aucun forum disponible/)).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: /mes forums/i })).toBeNull()
+  })
+
+  it("l'onglet 'Mes forums' affiche le badge 'Caché' pour un forum masqué", async () => {
+    const HIDDEN_FORUM: Forum = { ...OPEN_FORUM, id: 'forum-hidden', isHidden: true }
+    mockFetchForums.mockImplementation(async ({ mine } = {}) =>
+      mine ? [HIDDEN_FORUM] : [OPEN_FORUM],
+    )
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /mes forums/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /mes forums/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Caché')).toBeDefined()
     })
   })
 })

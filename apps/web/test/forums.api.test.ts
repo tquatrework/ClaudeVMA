@@ -22,6 +22,7 @@ import {
   fetchForums,
   fetchForum,
   createForum,
+  hideForum,
   fetchForumComments,
   createForumComment,
   deleteForumComment,
@@ -61,6 +62,31 @@ describe('fetchForums', () => {
     const result = await fetchForums()
 
     expect(result).toEqual([{ id: FORUM_ID }])
+  })
+
+  it('appelle GET /forums avec mine=true, combinable avec tags', async () => {
+    mockGet.mockResolvedValue({ data: [] })
+
+    await fetchForums({ tags: 'algebre', mine: true })
+
+    expect(mockGet).toHaveBeenCalledWith('/forums', { params: { tags: 'algebre', mine: true } })
+  })
+})
+
+describe('hideForum', () => {
+  it('appelle POST /forums/:id/hide sans body', async () => {
+    mockPost.mockResolvedValue({ data: { id: FORUM_ID, isHidden: true } })
+
+    const result = await hideForum(FORUM_ID)
+
+    expect(mockPost).toHaveBeenCalledWith(`/forums/${FORUM_ID}/hide`)
+    expect(result).toEqual({ id: FORUM_ID, isHidden: true })
+  })
+
+  it('propage un 403 pour un appelant non RP', async () => {
+    mockPost.mockRejectedValue({ response: { status: 403 } })
+
+    await expect(hideForum(FORUM_ID)).rejects.toMatchObject({ response: { status: 403 } })
   })
 })
 

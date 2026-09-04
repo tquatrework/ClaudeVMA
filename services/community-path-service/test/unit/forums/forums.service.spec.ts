@@ -495,14 +495,14 @@ describe('ForumsService', () => {
       expect(result.firstComment).toEqual(savedComment);
     });
 
-    it('un RP créant un sujet le voit auto-validé (son propre validateur)', async () => {
+    it('un RP créant un sujet part aussi en pending_validation — aucune auto-validation de rôle (corrigé le 2026-09-04)', async () => {
       const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
       forumRepo.findOne.mockResolvedValue(forum);
       charterAcceptanceRepo.findOne.mockResolvedValue({ id: 'acc-rp', userId: RP_ID, acceptedAt: new Date() });
       const savedTopic = buildSampleTopic({
         authorId: RP_ID,
         authorRole: UserRole.RESPONSABLE_PEDAGOGIQUE,
-        status: ForumTopicStatus.VALIDATED,
+        status: ForumTopicStatus.PENDING_VALIDATION,
       });
       topicRepo.create.mockReturnValue(savedTopic);
       topicRepo.save.mockResolvedValue(savedTopic);
@@ -517,16 +517,24 @@ describe('ForumsService', () => {
       );
 
       expect(topicRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: ForumTopicStatus.VALIDATED, validatedByUserId: RP_ID }),
+        expect.objectContaining({
+          status: ForumTopicStatus.PENDING_VALIDATION,
+          validatedByUserId: null,
+          validatedAt: null,
+        }),
       );
     });
 
-    it('un AP créant un sujet le voit auto-validé (son propre validateur)', async () => {
+    it('un AP créant un sujet part aussi en pending_validation — aucune auto-validation de rôle (corrigé le 2026-09-04)', async () => {
       const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
       forumRepo.findOne.mockResolvedValue(forum);
       charterAcceptanceRepo.findOne.mockResolvedValue({ id: 'acc-ap', userId: AP_ID, acceptedAt: new Date() });
-      topicRepo.create.mockReturnValue(buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.VALIDATED }));
-      topicRepo.save.mockResolvedValue(buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.VALIDATED }));
+      topicRepo.create.mockReturnValue(
+        buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
+      topicRepo.save.mockResolvedValue(
+        buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
       commentRepo.create.mockReturnValue({ id: 'cmt-003' });
       commentRepo.save.mockResolvedValue({ id: 'cmt-003' });
 
@@ -537,7 +545,9 @@ describe('ForumsService', () => {
         UserRole.ANIMATEUR_PEDAGOGIQUE,
       );
 
-      expect(topicRepo.create).toHaveBeenCalledWith(expect.objectContaining({ status: ForumTopicStatus.VALIDATED }));
+      expect(topicRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
     });
 
     it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {

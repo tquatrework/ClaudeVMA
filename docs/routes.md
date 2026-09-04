@@ -3628,20 +3628,23 @@ accès au forum (restriction de rôle, exclusion individuelle, forum non caché 
 charte de bonne conduite acceptée au préalable.
 
 **Validation d'un sujet.** Machine à états à 3 valeurs : `pending_validation` → `validated` ou
-`rejected`. Un sujet créé par un **RP ou un AP** est **auto-validé** immédiatement (son propre
-validateur — même cohérence que le cycle de validation du contenu pédagogique dans
-`content-catalog-service`, Quizz/Exercice/Évaluation/Tutoriel, 2026-08-28 et suivants). Un sujet
-créé par un **élève, un parent financeur ou un formateur** part en `pending_validation` et doit
-être validé par un RP avant d'être visible aux autres membres du forum. **`rejected` n'est pas
-demandé mot pour mot par l'arbitrage** — ajouté pour éviter qu'un sujet indésirable reste
-indéfiniment en attente sans décision ; aucun commentaire de refus n'est obligatoire (`reason` est
-optionnel), à la différence du flux de validation générique de `content-catalog-service`.
+`rejected`. **Tout sujet créé par un membre part en `pending_validation`, sans aucune exception de
+rôle** — y compris un sujet créé par un RP ou un AP — et doit être validé par un RP
+(`POST /forums/:id/topics/:topicId/decision`) avant d'être visible aux autres membres du forum.
+Seul le sujet système « Sujet général » échappe à ce flux (déjà `validated` à sa création, voir
+plus bas) : il n'est pas créé par un membre. **`rejected` n'est pas demandé mot pour mot par
+l'arbitrage** — ajouté pour éviter qu'un sujet indésirable reste indéfiniment en attente sans
+décision ; aucun commentaire de refus n'est obligatoire (`reason` est optionnel), à la différence
+du flux de validation générique de `content-catalog-service`.
 
-**Auto-validation AP — extension par cohérence, à confirmer.** L'arbitrage ne tranche mot pour mot
-que le cas RP (« le créateur du sujet [...] voit un sujet en attente »). L'extension à l'AP est une
-décision de `community-path-service`, par cohérence avec le cycle de validation déjà établi
-ailleurs dans le projet pour le contenu pédagogique — à corriger si l'intention était que seul le
-RP soit auto-validé et que l'AP passe, comme les autres membres, par `pending_validation`.
+**Correction du 2026-09-04, avant merge de la PR initiale.** Une première implémentation avait
+introduit une auto-validation des sujets créés par un RP ou un AP (« son propre validateur »), par
+cohérence avec le cycle de validation du contenu pédagogique de `content-catalog-service`
+(Quizz/Exercice/Évaluation/Tutoriel). **Retirée sur relecture stricte de l'arbitrage** : celui-ci
+dit explicitement « n'importe quel membre du forum peut créer un sujet » et « un sujet doit être
+validé par un RP avant d'être accessible aux autres membres », sans aucune exception de rôle
+mentionnée — seul le sujet système « Sujet général » est nommément exempté. L'extension par
+cohérence n'était pas demandée et contredisait la lecture stricte du texte.
 
 **Visibilité d'un sujet non validé.** Un sujet `pending_validation`/`rejected` est visible
 uniquement par son **auteur** et par les rôles administratifs à accès illimité

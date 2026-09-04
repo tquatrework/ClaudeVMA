@@ -25,7 +25,6 @@ import {
   FORUM_ADMIN_BYPASS_ROLES,
   FORUM_CHARTER_MANAGER_ROLES,
   FORUM_CREATOR_ROLES,
-  FORUM_TOPIC_AUTO_VALIDATE_ROLES,
   FORUM_TOPIC_DECISION_ROLES,
 } from '../common/constants/forum-access.constants';
 import {
@@ -352,9 +351,14 @@ export class ForumsService {
    * Le premier message du sujet EST son premier `ForumComment` : `content`
    * du DTO devient ce premier commentaire, auteur = créateur du sujet.
    *
-   * Statut à la création : `validated` immédiatement si le créateur est RP
-   * ou AP (son propre validateur, même cohérence que le cycle de validation
-   * du contenu pédagogique) ; `pending_validation` sinon.
+   * Statut à la création : toujours `pending_validation`, **sans exception
+   * de rôle** — y compris pour un RP ou un AP. Seul le sujet système "Sujet
+   * général" (`createDefaultTopic`) échappe à ce flux. Lecture stricte de
+   * l'arbitrage du 2026-09-04 ("Structure en sujets (topics) des Forums") :
+   * une auto-validation RP/AP avait été introduite par cohérence avec le
+   * cycle de validation du contenu pédagogique, mais l'arbitrage ne prévoit
+   * aucune exception de rôle pour la création d'un sujet — tranché et
+   * retiré le 2026-09-04, sur demande explicite de l'utilisateur.
    */
   async createTopic(
     forumId: string,
@@ -378,17 +382,15 @@ export class ForumsService {
       });
     }
 
-    const autoValidate = FORUM_TOPIC_AUTO_VALIDATE_ROLES.includes(authorRole);
-    const now = new Date();
     const newTopic = this.topicRepository.create({
       forumId,
       title: createTopicDto.title,
       authorId,
       authorRole,
-      status: autoValidate ? ForumTopicStatus.VALIDATED : ForumTopicStatus.PENDING_VALIDATION,
+      status: ForumTopicStatus.PENDING_VALIDATION,
       isDefault: false,
-      validatedByUserId: autoValidate ? authorId : null,
-      validatedAt: autoValidate ? now : null,
+      validatedByUserId: null,
+      validatedAt: null,
     });
     const savedTopic = await this.topicRepository.save(newTopic);
 

@@ -20,6 +20,7 @@ import {
 import { ForumsService, isRoleAllowedForForum } from '../../../src/forums/forums.service';
 import { PathsService, MAX_OPEN_ENROLLMENTS } from '../../../src/paths/paths.service';
 import { Forum } from '../../../src/forums/entities/forum.entity';
+import { ForumTopic } from '../../../src/forums/entities/forum-topic.entity';
 import { ForumComment } from '../../../src/forums/entities/forum-comment.entity';
 import { ForumExclusion } from '../../../src/forums/entities/forum-exclusion.entity';
 import { ForumCharterSetting } from '../../../src/forums/entities/forum-charter-setting.entity';
@@ -68,10 +69,6 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     id: FORUM_ID,
     title: 'Forum Algebre',
     description: 'Discussion autour de l algebre',
-    level: 'seconde',
-    difficulty: 'intermediaire',
-    theme: 'algebre',
-    competences: null,
     tags: null,
     allowedRoles: null,
     createdById: RP_ID,
@@ -81,7 +78,7 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     isHidden: false,
     hiddenAt: null,
     hiddenByUserId: null,
-    comments: [],
+    topics: [],
     exclusions: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -132,6 +129,7 @@ describe('CPS-AC-001 -- Creation forums/parcours reservee aux RP et AP', () => {
   let forumsService: ForumsService;
   let pathsService: PathsService;
   let forumRepo: ReturnType<typeof buildMockRepo>;
+  let topicRepo: ReturnType<typeof buildMockRepo>;
   let commentRepo: ReturnType<typeof buildMockRepo>;
   let exclusionRepo: ReturnType<typeof buildMockRepo>;
   let charterSettingRepo: ReturnType<typeof buildMockRepo>;
@@ -144,6 +142,7 @@ describe('CPS-AC-001 -- Creation forums/parcours reservee aux RP et AP', () => {
 
   beforeEach(async () => {
     forumRepo = buildMockRepo();
+    topicRepo = buildMockRepo();
     commentRepo = buildMockRepo();
     exclusionRepo = buildMockRepo();
     charterSettingRepo = buildMockRepo();
@@ -158,6 +157,7 @@ describe('CPS-AC-001 -- Creation forums/parcours reservee aux RP et AP', () => {
       providers: [
         ForumsService,
         { provide: getRepositoryToken(Forum), useValue: forumRepo },
+        { provide: getRepositoryToken(ForumTopic), useValue: topicRepo },
         { provide: getRepositoryToken(ForumComment), useValue: commentRepo },
         { provide: getRepositoryToken(ForumExclusion), useValue: exclusionRepo },
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
@@ -187,6 +187,8 @@ describe('CPS-AC-001 -- Creation forums/parcours reservee aux RP et AP', () => {
     const createdForum = buildSampleForum();
     forumRepo.create.mockReturnValue(createdForum);
     forumRepo.save.mockResolvedValue(createdForum);
+    topicRepo.create.mockReturnValue({ id: 'topic-default', forumId: FORUM_ID, title: 'Sujet général' });
+    topicRepo.save.mockResolvedValue({ id: 'topic-default', forumId: FORUM_ID, title: 'Sujet général' });
 
     const result = await forumsService.createForum(
       { title: 'Forum Algebre' },
@@ -495,6 +497,7 @@ describe('CPS-AC-003 -- Certificat emis automatiquement a la completion du parco
 describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation des exclusions', () => {
   let forumsService: ForumsService;
   let forumRepo: ReturnType<typeof buildMockRepo>;
+  let topicRepo: ReturnType<typeof buildMockRepo>;
   let commentRepo: ReturnType<typeof buildMockRepo>;
   let exclusionRepo: ReturnType<typeof buildMockRepo>;
   let charterSettingRepo: ReturnType<typeof buildMockRepo>;
@@ -502,6 +505,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
 
   beforeEach(async () => {
     forumRepo = buildMockRepo();
+    topicRepo = buildMockRepo();
     commentRepo = buildMockRepo();
     exclusionRepo = buildMockRepo();
     charterSettingRepo = buildMockRepo();
@@ -511,6 +515,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
       providers: [
         ForumsService,
         { provide: getRepositoryToken(Forum), useValue: forumRepo },
+        { provide: getRepositoryToken(ForumTopic), useValue: topicRepo },
         { provide: getRepositoryToken(ForumComment), useValue: commentRepo },
         { provide: getRepositoryToken(ForumExclusion), useValue: exclusionRepo },
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
@@ -525,17 +530,26 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
 
   afterEach(() => jest.clearAllMocks());
 
-  it('un eleve peut commenter un forum ouvert a tous (allowedRoles null)', async () => {
+  it('un eleve peut creer un sujet dans un forum ouvert a tous (allowedRoles null)', async () => {
     forumRepo.findOne.mockResolvedValue(
       buildSampleForum({ allowedRoles: null, exclusions: [] }),
     );
-    const savedComment = { id: 'cmt-001', forumId: FORUM_ID, authorId: ELEVE_ID, content: 'Bonjour' };
+    const savedTopic = { id: 'topic-001', forumId: FORUM_ID, authorId: ELEVE_ID, title: 'Question' };
+    topicRepo.create.mockReturnValue(savedTopic);
+    topicRepo.save.mockResolvedValue(savedTopic);
+    const savedComment = { id: 'cmt-001', topicId: 'topic-001', authorId: ELEVE_ID, content: 'Bonjour' };
     commentRepo.create.mockReturnValue(savedComment);
     commentRepo.save.mockResolvedValue(savedComment);
 
-    const result = await forumsService.addComment(FORUM_ID, { content: 'Bonjour' }, ELEVE_ID, UserRole.ELEVE);
+    const result = await forumsService.createTopic(
+      FORUM_ID,
+      { title: 'Question', content: 'Bonjour' },
+      ELEVE_ID,
+      UserRole.ELEVE,
+    );
 
     expect(result.authorId).toBe(ELEVE_ID);
+    expect(result.firstComment.authorId).toBe(ELEVE_ID);
   });
 
   it('un eleve ne peut pas acceder a un forum restreint aux formateurs', () => {
@@ -550,7 +564,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
     expect(isRoleAllowedForForum(UserRole.FORMATEUR, { allowedRoles: null })).toBe(true);
   });
 
-  it('un utilisateur exclu ne peut pas commenter le forum --- ForbiddenException', async () => {
+  it('un utilisateur exclu ne peut pas creer de sujet dans le forum --- ForbiddenException', async () => {
     forumRepo.findOne.mockResolvedValue(
       buildSampleForum({
         allowedRoles: null,
@@ -569,7 +583,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
     );
 
     await expect(
-      forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+      forumsService.createTopic(FORUM_ID, { title: 'Question', content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -623,6 +637,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
 describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autres roles (404)', () => {
   let forumsService: ForumsService;
   let forumRepo: ReturnType<typeof buildMockRepo>;
+  let topicRepo: ReturnType<typeof buildMockRepo>;
   let commentRepo: ReturnType<typeof buildMockRepo>;
   let exclusionRepo: ReturnType<typeof buildMockRepo>;
   let charterSettingRepo: ReturnType<typeof buildMockRepo>;
@@ -630,6 +645,7 @@ describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autr
 
   beforeEach(async () => {
     forumRepo = buildMockRepo();
+    topicRepo = buildMockRepo();
     commentRepo = buildMockRepo();
     exclusionRepo = buildMockRepo();
     charterSettingRepo = buildMockRepo();
@@ -639,6 +655,7 @@ describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autr
       providers: [
         ForumsService,
         { provide: getRepositoryToken(Forum), useValue: forumRepo },
+        { provide: getRepositoryToken(ForumTopic), useValue: topicRepo },
         { provide: getRepositoryToken(ForumComment), useValue: commentRepo },
         { provide: getRepositoryToken(ForumExclusion), useValue: exclusionRepo },
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
@@ -680,11 +697,11 @@ describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autr
     expect(qb.andWhere).toHaveBeenCalled();
   });
 
-  it("un eleve ne peut pas commenter un forum restreint aux formateurs --- NotFoundException (masquage, pas 403)", async () => {
+  it("un eleve ne peut pas creer de sujet dans un forum restreint aux formateurs --- NotFoundException (masquage, pas 403)", async () => {
     forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] }));
 
     await expect(
-      forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+      forumsService.createTopic(FORUM_ID, { title: 'Question', content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
     ).rejects.toThrow(NotFoundException);
   });
 });

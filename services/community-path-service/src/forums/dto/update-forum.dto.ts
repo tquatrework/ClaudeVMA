@@ -9,6 +9,11 @@ import { ForumRestrictableRole } from '../../common/enums/forum-restrictable-rol
  * sont fournis (titre non vide notamment). L'image d'illustration n'est pas
  * concernée : elle reste gérée par sa propre route (POST /forums/:id/image).
  */
+/**
+ * `level`/`difficulty`/`theme`/`competences` retirés le 2026-09-04 (arbitrage
+ * "Structure en sujets (topics) des Forums") — même retrait que
+ * `CreateForumDto`.
+ */
 export class UpdateForumDto {
   @ApiPropertyOptional({ description: 'Titre du forum' })
   @IsOptional()
@@ -20,26 +25,6 @@ export class UpdateForumDto {
   @IsOptional()
   @IsString()
   description?: string;
-
-  @ApiPropertyOptional({ description: 'Niveau scolaire ciblé' })
-  @IsOptional()
-  @IsString()
-  level?: string;
-
-  @ApiPropertyOptional({ description: 'Difficulté' })
-  @IsOptional()
-  @IsString()
-  difficulty?: string;
-
-  @ApiPropertyOptional({ description: 'Thème pédagogique' })
-  @IsOptional()
-  @IsString()
-  theme?: string;
-
-  @ApiPropertyOptional({ description: 'Compétences visées' })
-  @IsOptional()
-  @IsString()
-  competences?: string;
 
   @ApiPropertyOptional({ description: 'Tags séparés par virgule, exploitables en recherche' })
   @IsOptional()

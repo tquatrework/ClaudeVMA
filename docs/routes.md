@@ -3426,6 +3426,16 @@ AP » du même fichier (un AP pouvait créer un forum soumis à validation RP) :
 désormais un forum**, il est visible dès sa création, aucun mécanisme de publication/validation
 n'existe plus pour ce type de contenu.
 
+**Changement de contrat majeur (2026-09-04, section « Structure en sujets (topics) des Forums »)** :
+un forum n'est plus une discussion plate. Il contient désormais des **sujets** (`ForumTopic`), et un
+commentaire (`ForumComment`) appartient à un sujet, pas directement à un forum. Les routes
+`POST`/`GET /forums/:id/comments` **sont retirées** (elles n'ont plus de sens dans ce modèle) —
+voir section « Sujets (topics) » ci-dessous pour le contrat de remplacement complet. `level`,
+`difficulty`, `theme`, `competences` sont **retirés** de `POST`/`PATCH /forums` et de la table
+`forums` (colonnes supprimées par `synchronize`, ce service n'a pas de migrations TypeORM — voir
+note de rattrapage plus bas) : héritage du modèle générique de contenu, sans usage réel pour les
+Forums. `tags` et `description` restent inchangés.
+
 ### Forums
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
@@ -3435,16 +3445,15 @@ n'existe plus pour ce type de contenu.
 | PATCH | /forums/:id | Éditer les métadonnées d'un forum (titre, description, tags, `allowedRoles`). Seuls les champs fournis dans le body sont modifiés ; **tout RP** peut éditer **n'importe quel forum**, pas seulement son créateur (même principe que le masquage ci-dessous). Un forum caché (`isHidden`) reste éditable. L'image d'illustration n'est pas concernée, elle reste gérée par `POST /forums/:id/image` — ajouté le 2026-09-04 | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité complète à jour) · `400` DTO invalide (ex. `title` fourni vide) · `401` · `403` appelant non RP · `404` forum introuvable |
 | POST | /forums/:id/hide | Masquer un forum — le retire de la lecture de tout le monde sauf du RP. Non destructif (`isHidden` posé à `true`, la ligne n'est jamais supprimée). Idempotent : masquer un forum déjà caché renvoie l'entité telle quelle, sans réécrire `hiddenAt`/`hiddenByUserId`. Aucune route de réouverture n'existe pour l'instant — ajouté le 2026-09-04 | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité à jour, `isHidden: true`) · `401` · `403` appelant non RP · `404` forum introuvable |
 
-Body `POST /forums` :
+Body `POST /forums` — `level`/`difficulty`/`theme`/`competences` **retirés le 2026-09-04** (n'ont
+jamais eu d'usage réel pour les Forums, hérités par erreur du modèle générique de contenu ; toute
+valeur envoyée pour ces clés est **ignorée** par le `ValidationPipe({ whitelist: true })`, pas
+refusée explicitement — ne plus les proposer côté front) :
 
 ```json
 {
   "title": "string (requis, non vide)",
   "description": "string (optionnel)",
-  "level": "string (optionnel)",
-  "difficulty": "string (optionnel)",
-  "theme": "string (optionnel)",
-  "competences": "string (optionnel)",
   "tags": "string (optionnel, libre, ex: \"algèbre,trigonométrie\")",
   "allowedRoles": ["eleve" | "parent_financeur" | "formateur" | "animateur_pedagogique"]
 }
@@ -3460,16 +3469,13 @@ dans un sélecteur front. Les 4 seules valeurs acceptées sont celles de `ForumR
 
 Body `PATCH /forums/:id` — ajouté le 2026-09-04, tous les champs sont **optionnels**, mêmes règles
 de validation que `POST /forums` pour chacun d'eux (ex. `title`, si fourni, ne peut pas être une
-chaîne vide) ; un champ absent du body n'est **pas modifié** (pas de réinitialisation implicite) :
+chaîne vide) ; un champ absent du body n'est **pas modifié** (pas de réinitialisation implicite).
+`level`/`difficulty`/`theme`/`competences` retirés le 2026-09-04, même motif que `POST /forums` :
 
 ```json
 {
   "title": "string (optionnel, non vide si fourni)",
   "description": "string (optionnel)",
-  "level": "string (optionnel)",
-  "difficulty": "string (optionnel)",
-  "theme": "string (optionnel)",
-  "competences": "string (optionnel)",
   "tags": "string (optionnel)",
   "allowedRoles": ["eleve" | "parent_financeur" | "formateur" | "animateur_pedagogique"] (optionnel)
 }
@@ -3482,17 +3488,15 @@ complète mise à jour (voir forme ci-dessous), jamais un corps partiel — mêm
 reste du projet (« on réaffiche la réponse reçue, jamais le corps envoyé »).
 
 Forme de l'entité `Forum`, renvoyée par `POST /forums`, `PATCH /forums/:id`, dans le tableau de
-`GET /forums`, et par `POST /forums/:id/image` (mise à jour) :
+`GET /forums`, et par `POST /forums/:id/image` (mise à jour). `level`/`difficulty`/`theme`/
+`competences` retirés le 2026-09-04 (colonnes supprimées en base) — ne plus les lire dans une
+réponse existante :
 
 ```json
 {
   "id": "uuid",
   "title": "string",
   "description": "string | null",
-  "level": "string | null",
-  "difficulty": "string | null",
-  "theme": "string | null",
-  "competences": "string | null",
   "tags": "string | null",
   "allowedRoles": ["eleve", "formateur", ...] | null,
   "createdById": "uuid",
@@ -3517,15 +3521,16 @@ indicateur booléen « ce forum a-t-il une image » côté front, jamais comme u
 **Masquage total (404, jamais 403) sur un forum restreint.** Un forum dont `allowedRoles` ne
 contient pas le rôle de l'appelant (et que l'appelant n'est pas administratif) est **absent** de
 `GET /forums` — pas un item masqué dans le tableau, l'entrée n'existe simplement pas dans la
-réponse. La même règle vaut pour `GET /forums/:id/image` et `POST /forums/:id/comments` (404 au
-lieu d'un 403 qui révélerait l'existence du forum) — voir ces routes plus bas. `GET /forums` ne
-renvoie donc jamais lui-même de 403 pour ce motif : le filtrage se fait par omission dans la
-liste.
+réponse. La même règle vaut pour `GET /forums/:id/image` et toutes les routes de sujets/commentaires
+(`GET`/`POST /forums/:id/topics`, `GET /forums/:id/topics/:topicId`,
+`POST /forums/:id/topics/:topicId/comments` — 404 au lieu d'un 403 qui révélerait l'existence du
+forum) — voir la section « Sujets (topics) » plus bas. `GET /forums` ne renvoie donc jamais
+lui-même de 403 pour ce motif : le filtrage se fait par omission dans la liste.
 
 **Masquage RP (`isHidden`) — ajouté le 2026-09-04, plus strict que le masquage par rôle
 ci-dessus.** Un forum avec `isHidden: true` est **absent** de `GET /forums`, `GET /forums/:id`,
-`GET /forums/:id/comments`, `GET /forums/:id/image` et refusé (404) sur
-`POST /forums/:id/comments`, pour **tout le monde sauf le RP** — y compris l'administrateur
+`GET /forums/:id/topics`, `GET /forums/:id/image` et refusé (404) sur toute route de création de
+sujet ou de commentaire, pour **tout le monde sauf le RP** — y compris l'administrateur
 financier et le technicien informatique, qui bénéficient pourtant du bypass de la restriction par
 rôle (`FORUM_ADMIN_BYPASS_ROLES`) mais **pas** de celui du masquage RP : seul
 `responsable_pedagogique` voit un forum caché. Même discipline 404 (jamais 403) que la restriction
@@ -3535,14 +3540,11 @@ par rôle. **Aucune route de réouverture n'existe** : une fois posé, `isHidden
 cachés, le RP utilise `GET /forums?mine=true` (voir ci-dessus), qui ignore à la fois la restriction
 de rôle et le masquage pour les forums que l'appelant a lui-même créés.
 
-**Détail d'un forum, et lecture des commentaires — ajoutés le 2026-09-04, suite directe de la
-PR #230.** Le gap documenté ci-dessous (ancienne version de cette section) a été comblé : un écran
-de fil de discussion est désormais constructible avec le contrat actuel.
+**Détail d'un forum — ajouté le 2026-09-04 (PR #230), inchangé par le chantier Sujets du même jour.**
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /forums/:id | Détail d'un forum unique | 🔒 | tous rôles autorisés sur ce forum | `200 Forum` (même forme que `GET /forums`) · `401` · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché (`isHidden`) pour un appelant non RP (masquage, même erreur générique dans les trois cas) |
-| GET | /forums/:id/comments | Lister les commentaires d'un forum, **du plus ancien au plus récent** (ordre de lecture d'un fil de discussion — choix explicite du service, l'arbitrage ne précisait pas de sens) | 🔒 | mêmes droits que le détail du forum | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que ci-dessus (rôle restreint ou forum caché) |
 
 **Placement dans le contrôleur (important pour qui retouche ce fichier)** : `GET /forums/:id` est
 déclaré *après* les routes littérales à un seul segment (`GET /forums/charter`,
@@ -3550,27 +3552,23 @@ déclaré *après* les routes littérales à un seul segment (`GET /forums/chart
 d'enregistrement, une déclaration plus haute de `:id` capturerait ces chemins littéraux comme un
 identifiant de forum.
 
-Query `GET /forums/:id/comments` : `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**) —
-même convention que le reste du projet (`GET /profiles/teachers/validated`,
-`GET /profiles/directory/by-role`) : plafond **refusé explicitement** (`400`, message en français
-citant la limite), jamais rogné en silence ; une page au-delà de la dernière renvoie
-`200 {data: [], total, totalPages}`, jamais `404`. Première utilisation de cette convention de
-pagination dans `community-path-service` — utilitaire partagé
-`src/common/utils/pagination.util.ts`, réutilisable pour un futur besoin paginé du même service
-(Parcours, Badges).
-
-**Masquage identique à `GET /forums`/`POST /forums/:id/comments`** : forum inexistant, rôle non
-autorisé sur un forum restreint, ou forum caché (`isHidden`, ajouté le 2026-09-04) pour un
-appelant non RP renvoient la **même** `404` générique, jamais de `403` qui révélerait l'existence
-du forum.
+**`GET`/`POST /forums/:id/comments` sont retirées le 2026-09-04, pas redirigées.** Un forum n'est
+plus une discussion plate : les commentaires appartiennent désormais à un **sujet** (`ForumTopic`),
+qui appartient lui-même au forum. Un appel sur ces deux routes renvoie `404` (route inexistante,
+Nest ne matche plus rien sous `Controller('forums')` pour ce chemin). Le remplacement complet —
+lister/créer un sujet, lire/poster un commentaire dans un sujet, valider un sujet — est documenté
+dans la nouvelle section **« Sujets (topics) »** ci-dessous. Aucune donnée n'a été perdue à la
+bascule : voir le paragraphe « Rattrapage et migration » de cette même section pour le détail de ce
+qui a été fait sur les forums déjà en production au moment du chantier.
 
 **Charte de bonne conduite : aucune nouvelle route nécessaire.** La charte est globale, pas
-propre à un forum (voir section « Charte de bonne conduite » ci-dessous) : `GET /forums/charter/acceptance`,
-déjà existante, indique déjà si l'appelant doit accepter la charte avant de commenter — sur
-**n'importe quel** forum, pas seulement celui consulté. Le front peut donc, en consultant un
-forum, appeler cette route une fois (indépendamment du forum affiché) pour savoir s'il doit
-proposer le bouton « Commenter » ou rediriger vers l'acceptation de la charte ; aucun appel scopé
-par `forumId` n'est nécessaire ni disponible.
+propre à un forum ni à un sujet (voir section « Charte de bonne conduite » ci-dessous) :
+`GET /forums/charter/acceptance`, déjà existante, indique déjà si l'appelant doit accepter la
+charte avant de créer un sujet ou de commenter — sur **n'importe quel** forum, pas seulement celui
+consulté. Le front peut donc, en consultant un forum, appeler cette route une fois (indépendamment
+du forum affiché) pour savoir s'il doit proposer les boutons « Nouveau sujet »/« Commenter » ou
+rediriger vers l'acceptation de la charte ; aucun appel scopé par `forumId` ou `topicId` n'est
+nécessaire ni disponible.
 
 ### Charte de bonne conduite
 
@@ -3611,22 +3609,130 @@ Plafond fixé à **1 000 000 octets (1 Mo SI)**, même valeur et même motif que
 (`api-gateway` déclare déjà `client_max_body_size 10m`, largement suffisant, aucun changement de
 routage nécessaire côté gateway pour cette taille).
 
-### Commentaires
+### Sujets (topics)
+
+**Changement de contrat majeur, 2026-09-04** (arbitrage « Structure en sujets (topics) des
+Forums »). Remplace intégralement l'ancienne section « Commentaires » (routes
+`POST`/`GET`/`DELETE /forums/:id/comments`, retirées — voir plus haut). Un forum contient
+désormais des **sujets** (`ForumTopic`) ; un commentaire (`ForumComment`) appartient à un sujet, pas
+directement au forum.
+
+**Modèle.** Créer un sujet, c'est fournir `{title, content}` : `content` devient le tout premier
+`ForumComment` du sujet (auteur = créateur du sujet) — il n'y a **pas** de champ de contenu séparé
+sur le sujet lui-même, uniquement un `title`. La discussion se poursuit ensuite avec d'autres
+commentaires postés dans ce sujet.
+
+**Qui peut créer un sujet.** N'importe quel membre du forum — **pas réservé au RP**, à la
+différence de la création du forum lui-même. Mêmes conditions que pour poster un commentaire :
+accès au forum (restriction de rôle, exclusion individuelle, forum non caché pour ce rôle) et
+charte de bonne conduite acceptée au préalable.
+
+**Validation d'un sujet.** Machine à états à 3 valeurs : `pending_validation` → `validated` ou
+`rejected`. Un sujet créé par un **RP ou un AP** est **auto-validé** immédiatement (son propre
+validateur — même cohérence que le cycle de validation du contenu pédagogique dans
+`content-catalog-service`, Quizz/Exercice/Évaluation/Tutoriel, 2026-08-28 et suivants). Un sujet
+créé par un **élève, un parent financeur ou un formateur** part en `pending_validation` et doit
+être validé par un RP avant d'être visible aux autres membres du forum. **`rejected` n'est pas
+demandé mot pour mot par l'arbitrage** — ajouté pour éviter qu'un sujet indésirable reste
+indéfiniment en attente sans décision ; aucun commentaire de refus n'est obligatoire (`reason` est
+optionnel), à la différence du flux de validation générique de `content-catalog-service`.
+
+**Auto-validation AP — extension par cohérence, à confirmer.** L'arbitrage ne tranche mot pour mot
+que le cas RP (« le créateur du sujet [...] voit un sujet en attente »). L'extension à l'AP est une
+décision de `community-path-service`, par cohérence avec le cycle de validation déjà établi
+ailleurs dans le projet pour le contenu pédagogique — à corriger si l'intention était que seul le
+RP soit auto-validé et que l'AP passe, comme les autres membres, par `pending_validation`.
+
+**Visibilité d'un sujet non validé.** Un sujet `pending_validation`/`rejected` est visible
+uniquement par son **auteur** et par les rôles administratifs à accès illimité
+(`responsable_pedagogique`, `administrateur_financier`, `technicien_informatique` — même bypass que
+partout ailleurs dans le domaine Forums). Les autres membres du forum ne le voient **pas** :
+masquage complet (absent de `GET /forums/:id/topics`, `404` sur `GET /forums/:id/topics/:topicId`
+et sur les routes de commentaires de ce sujet), jamais un `403` qui révélerait son existence — même
+discipline que le reste du domaine Forums.
+
+**Sujet système « Sujet général ».** Chaque forum reçoit, dès sa création (dans le même appel
+`POST /forums`), un sujet nommé exactement `"Sujet général"`, déjà `validated`, avec `isDefault:
+true`. Ce sujet système n'est **jamais** soumis au flux de validation (`POST
+/forums/:id/topics/:topicId/decision` renvoie `400` si on cible ce sujet). Il apparaît toujours en
+premier dans `GET /forums/:id/topics` (tri : `isDefault DESC`, puis `createdAt DESC`).
+
+**Rattrapage et migration (2026-09-04).** Avant ce chantier, aucun sujet n'existait pour les forums
+déjà créés en production pendant les vérifications HTTP directes des lots précédents (un seul forum
+réel constaté, `"Forum des 6ème"`, **0 commentaire** — vérifié directement en base au moment du
+chantier). `community-path-service` n'utilise **pas** de migrations TypeORM (schéma géré uniquement
+par `synchronize`, actif car `NODE_ENV=development` sur la pile réelle — voir le point ouvert
+« NODE_ENV=development » dans `docs/architecture/rail-rp-et-points-ouverts.md`) : le rattrapage est
+fait par un service applicatif (`ForumTopicsBootstrapService`, hook `onApplicationBootstrap`) qui,
+à chaque démarrage du service, crée le sujet système pour tout forum qui n'en a pas encore —
+idempotent, sans effet sur les forums déjà pourvus. Comme aucun commentaire n'existait en
+production au moment du chantier, aucune migration de données de commentaires n'a été nécessaire en
+pratique ; le code applicatif reste néanmoins écrit pour ne jamais faire disparaître un commentaire
+existant si ce cas se présentait dans un autre environnement (`ForumComment.topicId` est la seule
+colonne de rattachement désormais, `forumId` a été retiré de cette entité).
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| POST | /forums/:id/comments | Publier un commentaire. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (voir corps structuré ci-dessous) · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché (`isHidden`) pour un appelant non RP (masquage, même erreur générique dans les trois cas) |
-| DELETE | /forums/:id/comments/:commentId | Supprimer un commentaire a posteriori. Suppression **physique**, définitive (pas de trace conservée — rien dans l'arbitrage n'exige de preuve rétroactive ici, à la différence des consentements/relations ailleurs dans le projet) | 🔒 | responsable_pedagogique (uniquement — ni l'auteur, ni l'AP, ni le TI) | `204` (pas de corps) · `403` appelant non RP · `404` commentaire introuvable pour ce `forumId` précis (y compris s'il existe mais sous un autre forum) |
+| POST | /forums/:id/topics | Créer un sujet (titre + premier message) | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 {ForumTopic..., firstComment: ForumComment}` · `403` exclu de ce forum, ou charte non acceptée (corps structuré, voir plus bas) · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché pour un appelant non RP |
+| GET | /forums/:id/topics | Lister les sujets visibles par l'appelant : validés + les siens propres (tous statuts) + tout ce que voit un administrateur (RP/AF/TI, tous statuts). Paginé. Le sujet système apparaît toujours en premier | 🔒 | tous rôles autorisés sur ce forum | `200 {data: ForumTopic[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` forum inexistant/non accessible |
+| GET | /forums/:id/topics/:topicId | Détail d'un sujet | 🔒 | auteur, tout compte si `validated`, ou administrateur (RP/AF/TI) | `200 ForumTopic` · `401` · `404` forum ou sujet introuvable, ou sujet non visible à l'appelant (masquage, même erreur générique) |
+| POST | /forums/:id/topics/:topicId/decision | Valider ou refuser un sujet en attente | 🔒 | responsable_pedagogique (uniquement — **pas de scoping AP** ici, à la différence du contenu pédagogique générique de `content-catalog-service`) | `200 ForumTopic` (à jour) · `400` décision invalide, ou sujet système (`isDefault`) non soumis à validation · `403` appelant non RP · `404` forum ou sujet introuvable |
+| POST | /forums/:id/topics/:topicId/comments | Publier un commentaire dans un sujet. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte, sujet visible à l'appelant | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (corps structuré, voir plus bas) · `404` forum ou sujet introuvable, ou sujet non visible à l'appelant |
+| GET | /forums/:id/topics/:topicId/comments | Lister les commentaires d'un sujet, **du plus ancien au plus récent**. Paginé | 🔒 | mêmes droits que le détail du sujet | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que le détail du sujet |
+| DELETE | /forums/:id/topics/:topicId/comments/:commentId | Supprimer un commentaire a posteriori. Suppression **physique**, définitive (pas de trace conservée — inchangé par rapport à l'ancien mécanisme) | 🔒 | responsable_pedagogique (uniquement — ni l'auteur, ni l'AP, ni le TI) | `204` (pas de corps) · `403` appelant non RP · `404` commentaire introuvable sur ce `topicId` précis |
 
-Body `POST /forums/:id/comments` : `{ "content": "string (requis, non vide)" }`.
-
-Forme de l'entité `ForumComment` :
+Body `POST /forums/:id/topics` :
 
 ```json
-{ "id": "uuid", "forumId": "uuid", "authorId": "uuid", "authorRole": "string", "content": "string", "createdAt": "ISO date" }
+{ "title": "string (requis, non vide)", "content": "string (requis, non vide — devient le premier ForumComment)" }
 ```
 
-**Deux causes de `403` distinctes, à différencier côté front sur le corps de réponse :**
+Réponse `POST /forums/:id/topics` — le sujet créé, **enrichi** d'un champ `firstComment` portant le
+premier commentaire tout juste créé (évite un second appel pour l'afficher immédiatement) :
+
+```json
+{
+  "id": "uuid",
+  "forumId": "uuid",
+  "title": "string",
+  "authorId": "uuid",
+  "authorRole": "string",
+  "status": "pending_validation" | "validated" | "rejected",
+  "isDefault": false,
+  "validatedByUserId": "uuid | null",
+  "validatedAt": "ISO date | null",
+  "rejectedByUserId": "uuid | null",
+  "rejectedAt": "ISO date | null",
+  "rejectionReason": "string | null",
+  "createdAt": "ISO date",
+  "updatedAt": "ISO date",
+  "firstComment": { "id": "uuid", "topicId": "uuid", "authorId": "uuid", "authorRole": "string", "content": "string", "createdAt": "ISO date" }
+}
+```
+
+`GET /forums/:id/topics` et `GET /forums/:id/topics/:topicId` renvoient la même forme `ForumTopic`,
+**sans** le champ `firstComment` (propre à la réponse de création) — pour lire le premier message
+d'un sujet déjà créé, passer par `GET /forums/:id/topics/:topicId/comments` comme n'importe quel
+autre commentaire du sujet.
+
+Body `POST /forums/:id/topics/:topicId/decision` :
+
+```json
+{ "decision": "validated" | "rejected", "reason": "string (optionnel, surtout utile en cas de refus)" }
+```
+
+Body `POST /forums/:id/topics/:topicId/comments` : `{ "content": "string (requis, non vide)" }`.
+
+Forme de l'entité `ForumComment` — **`forumId` remplacé par `topicId`** le 2026-09-04 (un
+commentaire n'appartient plus directement à un forum) :
+
+```json
+{ "id": "uuid", "topicId": "uuid", "authorId": "uuid", "authorRole": "string", "content": "string", "createdAt": "ISO date" }
+```
+
+**Deux causes de `403` distinctes, à différencier côté front sur le corps de réponse** — inchangé
+par rapport à l'ancien mécanisme, vaut pour la création d'un sujet et pour un commentaire dans un
+sujet :
 - Exclu de ce forum précis (`ForumExclusion`) — corps Nest standard, **pas** de champ `code` :
   `{ "statusCode": 403, "message": "Vous avez été exclu de ce forum" }`.
 - **Charte non acceptée** — corps structuré distinctif :
@@ -3636,6 +3742,10 @@ Forme de l'entité `ForumComment` :
   C'est le signal explicite à utiliser pour rediriger l'utilisateur vers l'écran de lecture/
   acceptation de la charte (`GET`/`POST /forums/charter*`) plutôt que d'afficher une erreur
   générique.
+
+Query `GET /forums/:id/topics` et `GET /forums/:id/topics/:topicId/comments` : `page` (défaut `1`),
+`limit` (défaut `20`, **maximum `100`**) — même convention que le reste du projet, plafond **refusé
+explicitement** (`400`, message en français citant la limite), jamais rogné en silence.
 
 ### Exclusions
 
@@ -3658,22 +3768,38 @@ Body : `{ "excludedUserId": "uuid (requis)", "reason": "string (optionnel)" }`. 
 
 - Le formulaire de création RP doit lire `GET /forums/image-constraints` avant d'afficher le
   bouton d'upload d'image, même principe que l'avatar de profil.
-- Prévoir un écran/bandeau bloquant la zone de saisie de commentaire tant que
-  `GET /forums/charter/acceptance` renvoie `accepted: false`, avec un chemin vers la lecture de la
-  charte (`GET /forums/charter`) puis son acceptation (`POST /forums/charter/acceptance`).
 - Un forum qui disparaît de `GET /forums` (changement de restriction de rôle par le RP, ou
   changement de rôle de l'appelant) doit disparaître silencieusement des écrans qui le listaient ;
   `GET /forums/:id` (ajoutée le 2026-09-04) applique le même masquage 404, donc un rechargement de
   détail après un changement de restriction échoue proprement plutôt que de fuiter le forum.
-- Un écran de fil de discussion peut désormais s'appuyer sur `GET /forums/:id/comments` (ajoutée
-  le 2026-09-04, paginée) pour relire les commentaires déjà publiés — `POST /forums/:id/comments`
-  reste la seule route d'écriture.
-- Le bouton « Commenter » vs « Accepter la charte » se pilote avec `GET /forums/charter/acceptance`
-  (globale, pas besoin de la rappeler par forum) — voir section « Détail... » ci-dessus.
+- Le bouton « Commenter »/« Nouveau sujet » vs « Accepter la charte » se pilote avec
+  `GET /forums/charter/acceptance` (globale, pas besoin de la rappeler par forum ni par sujet).
 - **Bouton « Cacher » (ajouté le 2026-09-04)** : dans le panneau de modération RP, appeler
   `POST /forums/:id/hide` (sans body). Réponse `200 Forum` avec `isHidden: true` — retirer le forum
   de l'écran courant après succès (il deviendra invisible à tout rechargement de `GET /forums`,
-  `GET /forums/:id`, `GET /forums/:id/comments` et `GET /forums/:id/image`, y compris pour AF/TI).
+  `GET /forums/:id`, `GET /forums/:id/topics` et `GET /forums/:id/image`, y compris pour AF/TI).
   Aucun bouton « Décacher » à construire : aucune route de réouverture n'existe. Pour retrouver ses
   forums cachés, le RP utilise `GET /forums?mine=true` (tous statuts confondus pour l'auteur) —
   c'est l'unique point d'entrée pour lister ce qu'on a masqué.
+- **Refonte de `ForumDetailPage` requise (2026-09-04) : l'écran devient une liste de sujets, pas un
+  fil de commentaires direct.** Appeler `GET /forums/:id/topics` (paginé) pour afficher la liste des
+  sujets du forum ; un clic sur un sujet ouvre une nouvelle page/vue de détail de sujet qui appelle
+  `GET /forums/:id/topics/:topicId` puis `GET /forums/:id/topics/:topicId/comments` (paginé) pour le
+  fil de discussion, avec `POST /forums/:id/topics/:topicId/comments` pour répondre. Le sujet
+  système "Sujet général" apparaît toujours en premier dans la liste — c'est le point d'entrée
+  naturel pour un forum qui n'a pas encore d'autre sujet.
+- **Bouton « Nouveau sujet »** : visible à tout membre ayant accès au forum (pas réservé au RP,
+  contrairement au bouton de création de forum lui-même). Ouvre une petite saisie `{title,
+  content}` → `POST /forums/:id/topics`. La réponse contient déjà `firstComment` : afficher
+  immédiatement le sujet créé avec son premier message sans requête supplémentaire.
+- **Statut d'un sujet à afficher explicitement** (`pending_validation`/`validated`/`rejected`) —
+  un sujet en attente reste visible à son auteur et aux administrateurs, il doit être marqué comme
+  tel à l'écran ("en attente de validation"), jamais présenté comme un sujet normal.
+- **Panneau de validation des sujets, côté RP** : lister les sujets `pending_validation` (filtrer
+  côté front sur la réponse de `GET /forums/:id/topics`, qui les inclut déjà pour un RP), bouton
+  Valider/Refuser → `POST /forums/:id/topics/:topicId/decision` avec `{decision: "validated" |
+  "rejected", reason?}`. Le sujet système "Sujet général" n'apparaît jamais dans cette file
+  (`isDefault: true`, `POST .../decision` le refuse avec 400 si jamais tenté).
+- **`POST`/`GET`/`DELETE /forums/:id/comments` n'existent plus** — toute référence résiduelle dans
+  le front existant (`ForumDetailPage` d'avant le 2026-09-04) doit être retirée, pas seulement
+  contournée : ces routes renvoient `404`.

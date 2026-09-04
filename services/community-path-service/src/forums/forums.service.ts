@@ -7,25 +7,34 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets } from 'typeorm';
 import { Forum } from './entities/forum.entity';
+import { ForumTopic } from './entities/forum-topic.entity';
 import { ForumComment } from './entities/forum-comment.entity';
 import { ForumExclusion } from './entities/forum-exclusion.entity';
 import { ForumCharterSetting } from './entities/forum-charter-setting.entity';
 import { ForumCharterAcceptance } from './entities/forum-charter-acceptance.entity';
 import { CreateForumDto } from './dto/create-forum.dto';
 import { CreateForumCommentDto } from './dto/create-forum-comment.dto';
+import { CreateForumTopicDto } from './dto/create-forum-topic.dto';
+import { DecideForumTopicDto } from './dto/decide-forum-topic.dto';
 import { CreateForumExclusionDto } from './dto/create-forum-exclusion.dto';
 import { UpdateForumCharterDto } from './dto/update-forum-charter.dto';
 import { UpdateForumDto } from './dto/update-forum.dto';
 import { UserRole } from '../common/enums/user-role.enum';
+import { ForumTopicStatus } from '../common/enums/forum-topic-status.enum';
 import {
   FORUM_ADMIN_BYPASS_ROLES,
   FORUM_CHARTER_MANAGER_ROLES,
   FORUM_CREATOR_ROLES,
+  FORUM_TOPIC_AUTO_VALIDATE_ROLES,
+  FORUM_TOPIC_DECISION_ROLES,
 } from '../common/constants/forum-access.constants';
 import {
   ForumImageStorageService,
 } from './services/forum-image-storage.service';
 import { Pagination, PaginatedResult, buildPaginatedResult } from '../common/utils/pagination.util';
+
+/** Titre du sujet système créé automatiquement à la création d'un forum. */
+export const DEFAULT_TOPIC_TITLE = 'Sujet général';
 
 /**
  * Un forum est visible/accessible à un rôle donné si :
@@ -64,6 +73,8 @@ export class ForumsService {
   constructor(
     @InjectRepository(Forum)
     private readonly forumRepository: Repository<Forum>,
+    @InjectRepository(ForumTopic)
+    private readonly topicRepository: Repository<ForumTopic>,
     @InjectRepository(ForumComment)
     private readonly commentRepository: Repository<ForumComment>,
     @InjectRepository(ForumExclusion)
@@ -82,7 +93,12 @@ export class ForumsService {
   /**
    * Crée un nouveau forum. Réservé au RP (arbitrage du 2026-09-04 : l'AP
    * perd ce droit). Un forum créé par un RP est visible dès sa création,
-   * aucun mécanisme de publication/validation n'existe plus.
+   * aucun mécanisme de publication/validation n'existe plus pour le forum
+   * lui-même.
+   *
+   * Crée aussi, dans la foulée, le sujet système "Sujet général" — déjà
+   * `VALIDATED`, aucun flux de validation pour lui (arbitrage du 2026-09-04,
+   * "Structure en sujets (topics) des Forums", point 4).
    */
   async createForum(
     createForumDto: CreateForumDto,
@@ -96,10 +112,6 @@ export class ForumsService {
     const newForum = this.forumRepository.create({
       title: createForumDto.title,
       description: createForumDto.description,
-      level: createForumDto.level,
-      difficulty: createForumDto.difficulty,
-      theme: createForumDto.theme,
-      competences: createForumDto.competences,
       tags: createForumDto.tags,
       allowedRoles:
         createForumDto.allowedRoles && createForumDto.allowedRoles.length > 0
@@ -109,7 +121,30 @@ export class ForumsService {
       createdByRole: creatorRole,
     });
 
-    return this.forumRepository.save(newForum);
+    const savedForum = await this.forumRepository.save(newForum);
+    await this.createDefaultTopic(savedForum.id, creatorId, creatorRole);
+    return savedForum;
+  }
+
+  /**
+   * Crée le sujet système "Sujet général" pour un forum qui n'en a pas
+   * encore — utilisé à la création d'un forum, et par le rattrapage au
+   * démarrage du service pour les forums déjà existants (voir
+   * `ForumTopicsBootstrapService`).
+   */
+  async createDefaultTopic(forumId: string, authorId: string, authorRole: string): Promise<ForumTopic> {
+    const now = new Date();
+    const defaultTopic = this.topicRepository.create({
+      forumId,
+      title: DEFAULT_TOPIC_TITLE,
+      authorId,
+      authorRole,
+      status: ForumTopicStatus.VALIDATED,
+      isDefault: true,
+      validatedByUserId: authorId,
+      validatedAt: now,
+    });
+    return this.topicRepository.save(defaultTopic);
   }
 
   /**
@@ -227,10 +262,6 @@ export class ForumsService {
 
     if (updateForumDto.title !== undefined) forum.title = updateForumDto.title;
     if (updateForumDto.description !== undefined) forum.description = updateForumDto.description;
-    if (updateForumDto.level !== undefined) forum.level = updateForumDto.level;
-    if (updateForumDto.difficulty !== undefined) forum.difficulty = updateForumDto.difficulty;
-    if (updateForumDto.theme !== undefined) forum.theme = updateForumDto.theme;
-    if (updateForumDto.competences !== undefined) forum.competences = updateForumDto.competences;
     if (updateForumDto.tags !== undefined) forum.tags = updateForumDto.tags;
     if (updateForumDto.allowedRoles !== undefined) {
       forum.allowedRoles =
@@ -269,26 +300,71 @@ export class ForumsService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // Commentaires
+  // Sujets (topics) — arbitrage du 2026-09-04, "Structure en sujets (topics)
+  // des Forums". Remplace l'ancien mécanisme de commentaires directement
+  // attachés au forum : POST/GET /forums/:id/comments sont retirées, voir
+  // docs/routes.md pour le détail du nouveau contrat.
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Ajoute un commentaire à un forum. Le rôle doit être autorisé sur ce
-   * forum, l'utilisateur ne doit pas être exclu, et il doit avoir accepté la
-   * charte de bonne conduite au préalable (arbitrage du 2026-09-04 : la
-   * lecture reste ouverte sans acceptation, seule la participation l'exige).
+   * Un sujet non validé (`pending_validation`/`rejected`) est visible
+   * uniquement par son auteur et par les rôles administratifs à accès
+   * illimité (RP/AF/TI, même bypass que le reste du domaine Forums). Un
+   * sujet `validated` est visible par tout appelant ayant déjà accès au
+   * forum parent.
    */
-  async addComment(
+  private isTopicVisibleToRequester(
+    topic: Pick<ForumTopic, 'status' | 'authorId'>,
+    requesterId: string,
+    requesterRole: string,
+  ): boolean {
+    if (topic.status === ForumTopicStatus.VALIDATED) return true;
+    if (topic.authorId === requesterId) return true;
+    return FORUM_ADMIN_BYPASS_ROLES.includes(requesterRole);
+  }
+
+  /**
+   * Récupère un sujet accessible (forum accessible + sujet visible à ce
+   * rôle/cette personne), ou lève NotFoundException dans tous les cas
+   * d'inaccessibilité — même discipline de masquage que le reste du domaine
+   * Forums : un sujet non visible se comporte comme s'il n'existait pas.
+   */
+  private async getAccessibleTopicOrThrow(
     forumId: string,
-    createCommentDto: CreateForumCommentDto,
+    topicId: string,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<ForumTopic> {
+    await this.getAccessibleForumOrThrow(forumId, requesterRole);
+
+    const topic = await this.topicRepository.findOne({ where: { id: topicId, forumId } });
+    if (!topic || !this.isTopicVisibleToRequester(topic, requesterId, requesterRole)) {
+      throw new NotFoundException(`Sujet ${topicId} introuvable sur ce forum`);
+    }
+    return topic;
+  }
+
+  /**
+   * Crée un sujet. N'importe quel membre du forum peut créer un sujet — pas
+   * réservé au RP (à la différence de la création du forum lui-même). Même
+   * gate que pour commenter : accès au forum, pas exclu, charte acceptée.
+   *
+   * Le premier message du sujet EST son premier `ForumComment` : `content`
+   * du DTO devient ce premier commentaire, auteur = créateur du sujet.
+   *
+   * Statut à la création : `validated` immédiatement si le créateur est RP
+   * ou AP (son propre validateur, même cohérence que le cycle de validation
+   * du contenu pédagogique) ; `pending_validation` sinon.
+   */
+  async createTopic(
+    forumId: string,
+    createTopicDto: CreateForumTopicDto,
     authorId: string,
     authorRole: string,
-  ): Promise<ForumComment> {
+  ): Promise<ForumTopic & { firstComment: ForumComment }> {
     const forum = await this.getAccessibleForumOrThrow(forumId, authorRole, ['exclusions']);
 
-    const isExcluded = forum.exclusions.some(
-      (exclusion) => exclusion.excludedUserId === authorId,
-    );
+    const isExcluded = forum.exclusions.some((exclusion) => exclusion.excludedUserId === authorId);
     if (isExcluded) {
       throw new ForbiddenException('Vous avez été exclu de ce forum');
     }
@@ -302,8 +378,160 @@ export class ForumsService {
       });
     }
 
-    const newComment = this.commentRepository.create({
+    const autoValidate = FORUM_TOPIC_AUTO_VALIDATE_ROLES.includes(authorRole);
+    const now = new Date();
+    const newTopic = this.topicRepository.create({
       forumId,
+      title: createTopicDto.title,
+      authorId,
+      authorRole,
+      status: autoValidate ? ForumTopicStatus.VALIDATED : ForumTopicStatus.PENDING_VALIDATION,
+      isDefault: false,
+      validatedByUserId: autoValidate ? authorId : null,
+      validatedAt: autoValidate ? now : null,
+    });
+    const savedTopic = await this.topicRepository.save(newTopic);
+
+    const firstComment = this.commentRepository.create({
+      topicId: savedTopic.id,
+      authorId,
+      authorRole,
+      content: createTopicDto.content,
+    });
+    const savedComment = await this.commentRepository.save(firstComment);
+
+    return { ...savedTopic, firstComment: savedComment };
+  }
+
+  /**
+   * Liste les sujets d'un forum, visibles par l'appelant : validés, plus les
+   * siens propres (tous statuts), plus tout ce que voit un administrateur
+   * (RP/AF/TI). Le sujet système "Sujet général" apparaît toujours en
+   * premier, les autres triés du plus récent au plus ancien.
+   */
+  async findTopics(
+    forumId: string,
+    requesterId: string,
+    requesterRole: string,
+    pagination: Pagination,
+  ): Promise<PaginatedResult<ForumTopic>> {
+    await this.getAccessibleForumOrThrow(forumId, requesterRole);
+
+    const queryBuilder = this.topicRepository
+      .createQueryBuilder('topic')
+      .where('topic.forumId = :forumId', { forumId })
+      .orderBy('topic.isDefault', 'DESC')
+      .addOrderBy('topic.createdAt', 'DESC');
+
+    if (!FORUM_ADMIN_BYPASS_ROLES.includes(requesterRole)) {
+      queryBuilder.andWhere(
+        new Brackets((qb) => {
+          qb.where('topic.status = :validated', { validated: ForumTopicStatus.VALIDATED }).orWhere(
+            'topic.authorId = :requesterId',
+            { requesterId },
+          );
+        }),
+      );
+    }
+
+    const [data, total] = await queryBuilder
+      .skip((pagination.page - 1) * pagination.limit)
+      .take(pagination.limit)
+      .getManyAndCount();
+
+    return buildPaginatedResult(data, total, pagination);
+  }
+
+  /** Détail d'un sujet — même masquage que `findTopics`. */
+  async getTopic(forumId: string, topicId: string, requesterId: string, requesterRole: string): Promise<ForumTopic> {
+    return this.getAccessibleTopicOrThrow(forumId, topicId, requesterId, requesterRole);
+  }
+
+  /**
+   * Décision RP sur un sujet en attente. Réservé au RP (pas de scoping AP,
+   * à la différence du contenu pédagogique générique — l'arbitrage ne
+   * mentionne que le RP comme décideur ici). Refuse explicitement toute
+   * décision sur le sujet système (`isDefault`), déjà validé et non soumis
+   * à ce flux.
+   */
+  async decideTopic(
+    forumId: string,
+    topicId: string,
+    decideDto: DecideForumTopicDto,
+    deciderId: string,
+    deciderRole: string,
+  ): Promise<ForumTopic> {
+    if (!FORUM_TOPIC_DECISION_ROLES.includes(deciderRole)) {
+      throw new ForbiddenException('Seul un responsable pédagogique peut valider un sujet');
+    }
+
+    const topic = await this.topicRepository.findOne({ where: { id: topicId, forumId } });
+    if (!topic) {
+      throw new NotFoundException(`Sujet ${topicId} introuvable sur ce forum`);
+    }
+
+    if (topic.isDefault) {
+      throw new BadRequestException('Le sujet système "Sujet général" n\'est pas soumis à validation');
+    }
+
+    const now = new Date();
+    if (decideDto.decision === 'validated') {
+      topic.status = ForumTopicStatus.VALIDATED;
+      topic.validatedByUserId = deciderId;
+      topic.validatedAt = now;
+      topic.rejectedByUserId = null;
+      topic.rejectedAt = null;
+      topic.rejectionReason = null;
+    } else {
+      topic.status = ForumTopicStatus.REJECTED;
+      topic.rejectedByUserId = deciderId;
+      topic.rejectedAt = now;
+      topic.rejectionReason = decideDto.reason ?? null;
+    }
+
+    return this.topicRepository.save(topic);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Commentaires (au sein d'un sujet)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Ajoute un commentaire à un sujet. Le sujet doit être visible à
+   * l'appelant, qui ne doit pas être exclu du forum, et doit avoir accepté
+   * la charte de bonne conduite au préalable — même gate que la création
+   * d'un sujet.
+   */
+  async addTopicComment(
+    forumId: string,
+    topicId: string,
+    createCommentDto: CreateForumCommentDto,
+    authorId: string,
+    authorRole: string,
+  ): Promise<ForumComment> {
+    const forum = await this.getAccessibleForumOrThrow(forumId, authorRole, ['exclusions']);
+
+    const isExcluded = forum.exclusions.some((exclusion) => exclusion.excludedUserId === authorId);
+    if (isExcluded) {
+      throw new ForbiddenException('Vous avez été exclu de ce forum');
+    }
+
+    const topic = await this.topicRepository.findOne({ where: { id: topicId, forumId } });
+    if (!topic || !this.isTopicVisibleToRequester(topic, authorId, authorRole)) {
+      throw new NotFoundException(`Sujet ${topicId} introuvable sur ce forum`);
+    }
+
+    const hasAcceptedCharter = await this.hasAcceptedCharter(authorId);
+    if (!hasAcceptedCharter) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'CHARTER_NOT_ACCEPTED',
+        message: 'Vous devez accepter la charte de bonne conduite avant de participer à un forum',
+      });
+    }
+
+    const newComment = this.commentRepository.create({
+      topicId,
       authorId,
       authorRole,
       content: createCommentDto.content,
@@ -313,45 +541,49 @@ export class ForumsService {
   }
 
   /**
-   * Supprime un commentaire a posteriori. Réservé au RP (l'énoncé ne
-   * mentionne que ce rôle — pas d'extension à l'auteur ni à l'AP).
+   * Liste paginée des commentaires d'un sujet, du plus ancien au plus récent
+   * (ordre de lecture d'un fil de discussion). Mêmes droits de lecture que
+   * le détail du sujet (même masquage 404).
    */
-  async deleteComment(forumId: string, commentId: string, moderatorRole: string): Promise<void> {
-    if (moderatorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
-      throw new ForbiddenException('Seul un responsable pédagogique peut supprimer un commentaire');
-    }
-
-    const comment = await this.commentRepository.findOne({ where: { id: commentId, forumId } });
-    if (!comment) {
-      throw new NotFoundException(`Commentaire ${commentId} introuvable sur ce forum`);
-    }
-
-    await this.commentRepository.remove(comment);
-  }
-
-  /**
-   * Liste paginée des commentaires d'un forum, du plus ancien au plus récent
-   * (ordre de lecture d'un fil de discussion — choix explicite, l'arbitrage
-   * ne précisait pas de sens). Mêmes droits de lecture que le détail du forum
-   * (même masquage 404). Route ajoutée le 2026-09-04, gap réel signalé après
-   * la PR #230 : `POST /forums/:id/comments` permettait de publier sans
-   * jamais pouvoir relire les commentaires déjà publiés.
-   */
-  async getForumComments(
+  async getTopicComments(
     forumId: string,
+    topicId: string,
+    requesterId: string,
     requesterRole: string,
     pagination: Pagination,
   ): Promise<PaginatedResult<ForumComment>> {
-    await this.getAccessibleForumOrThrow(forumId, requesterRole);
+    await this.getAccessibleTopicOrThrow(forumId, topicId, requesterId, requesterRole);
 
     const [data, total] = await this.commentRepository.findAndCount({
-      where: { forumId },
+      where: { topicId },
       order: { createdAt: 'ASC' },
       skip: (pagination.page - 1) * pagination.limit,
       take: pagination.limit,
     });
 
     return buildPaginatedResult(data, total, pagination);
+  }
+
+  /**
+   * Supprime un commentaire a posteriori. Réservé au RP (l'énoncé ne
+   * mentionne que ce rôle — pas d'extension à l'auteur ni à l'AP).
+   */
+  async deleteTopicComment(
+    forumId: string,
+    topicId: string,
+    commentId: string,
+    moderatorRole: string,
+  ): Promise<void> {
+    if (moderatorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Seul un responsable pédagogique peut supprimer un commentaire');
+    }
+
+    const comment = await this.commentRepository.findOne({ where: { id: commentId, topicId } });
+    if (!comment) {
+      throw new NotFoundException(`Commentaire ${commentId} introuvable sur ce sujet`);
+    }
+
+    await this.commentRepository.remove(comment);
   }
 
   // ───────────────────────────────────────────────────────────────────────

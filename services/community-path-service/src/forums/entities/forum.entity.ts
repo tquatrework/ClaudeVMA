@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
-import { ForumComment } from './forum-comment.entity';
+import { ForumTopic } from './forum-topic.entity';
 import { ForumExclusion } from './forum-exclusion.entity';
 
 @Entity('forums')
@@ -19,18 +19,6 @@ export class Forum {
 
   @Column({ type: 'text', nullable: true })
   description: string;
-
-  @Column({ nullable: true })
-  level: string;
-
-  @Column({ nullable: true })
-  difficulty: string;
-
-  @Column({ nullable: true })
-  theme: string;
-
-  @Column({ nullable: true })
-  competences: string;
 
   @Column({ nullable: true })
   tags: string;
@@ -82,8 +70,14 @@ export class Forum {
   @Column({ nullable: true })
   hiddenByUserId: string | null;
 
-  @OneToMany(() => ForumComment, (comment) => comment.forum, { cascade: true })
-  comments: ForumComment[];
+  /**
+   * Sujets du forum (arbitrage du 2026-09-04, "Structure en sujets (topics)
+   * des Forums") — remplace l'ancienne relation directe `comments` : un
+   * forum n'est plus une discussion plate, les commentaires appartiennent
+   * désormais à un sujet, qui appartient lui-même à ce forum.
+   */
+  @OneToMany(() => ForumTopic, (topic) => topic.forum, { cascade: true })
+  topics: ForumTopic[];
 
   @OneToMany(() => ForumExclusion, (exclusion) => exclusion.forum, { cascade: true })
   exclusions: ForumExclusion[];

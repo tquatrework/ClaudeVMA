@@ -30,7 +30,15 @@
  * - Un RP peut cacher un forum (`isHidden`), invisible ensuite à tout le monde sauf lui. Aucune
  *   route de réouverture — `GET /forums?mine=true` est l'unique moyen de retrouver ses forums
  *   cachés.
+ *
+ * **Résolution de l'auteur (`authorName`), ajoutée le 2026-09-04.** `ForumComment` et `ForumTopic`
+ * portent désormais un champ `authorName` résolu côté serveur auprès de `profile-service` — jamais
+ * `authorId` seul à l'affichage (règle du 2026-08-09, aucun UUID affiché à un utilisateur). `null`
+ * couvre deux cas indistincts côté front : `profile-service` injoignable (dégradation gracieuse) ou
+ * nom introuvable ; les deux se traduisent par un état neutre (« Auteur inconnu »).
  */
+
+import type { PersonName } from './profile'
 
 /** Les 4 seules valeurs acceptées pour `allowedRoles` — jamais les rôles administratifs, qui
  * gardent de toute façon un accès illimité quel que soit le réglage. */
@@ -107,6 +115,11 @@ export interface ForumTopic {
   rejectionReason: string | null
   createdAt: string
   updatedAt: string
+  /** Nom résolu de l'auteur du sujet (créateur, auteur de son premier message), ajouté le
+   * 2026-09-04. `null` = dégradation gracieuse (`profile-service` injoignable) ou nom introuvable —
+   * les deux cas se traitent identiquement côté front (« Auteur inconnu »), jamais `authorId`.
+   * Optionnel pour tolérer une réponse plus ancienne qui ne porterait pas encore ce champ. */
+  authorName?: PersonName | null
 }
 
 export interface CreateForumTopicPayload {
@@ -151,6 +164,10 @@ export interface ForumComment {
   authorRole: string
   content: string
   createdAt: string
+  /** Nom résolu de l'auteur du commentaire, ajouté le 2026-09-04 — voir `ForumTopic.authorName`
+   * pour la sémantique complète (`null` = dégradation gracieuse ou nom introuvable, indistincts).
+   * Absent sur `firstComment` de `POST /forums/:id/topics` (l'auteur est l'appelant lui-même). */
+  authorName?: PersonName | null
 }
 
 export interface CreateForumCommentPayload {

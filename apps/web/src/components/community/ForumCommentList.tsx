@@ -2,12 +2,15 @@
  * ForumCommentList — fil de discussion paginé (`GET /forums/:id/comments`), du plus ancien au
  * plus récent. Bouton de suppression visible uniquement pour le responsable pédagogique
  * (`DELETE /forums/:id/comments/:commentId`, réservé au RP côté serveur).
+ *
+ * Chaque commentaire affiche son auteur (`authorName`, ajouté le 2026-09-04) — « Auteur inconnu »
+ * si non résolu, jamais `authorId`.
  */
 
 import React from 'react'
 import { ErrorMessage } from '../ui/ErrorMessage'
 import { EmptyState } from '../ui/EmptyState'
-import { FORUM_LABELS } from '../../utils/forumLabels'
+import { FORUM_LABELS, formatForumAuthorLabel } from '../../utils/forumLabels'
 import type { ForumComment } from '../../types/forum'
 
 interface ForumCommentListProps {
@@ -67,6 +70,7 @@ export function ForumCommentList({
                 )}
               </div>
               <p className="text-xs text-gray-400 mt-1">
+                {FORUM_LABELS.authorPrefix} {formatForumAuthorLabel(comment.authorName)} ·{' '}
                 {new Date(comment.createdAt).toLocaleDateString('fr-FR')}
               </p>
             </li>

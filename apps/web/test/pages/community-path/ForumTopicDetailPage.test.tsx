@@ -13,6 +13,8 @@
  * - Boutons de décision (Valider/Refuser) visibles seulement pour le RP sur un sujet en attente,
  *   jamais sur le sujet système
  * - Validation et refus d'un sujet appellent POST /forums/:id/topics/:topicId/decision
+ * - Auteur d'un commentaire affiché (prénom + nom résolus), ou « Auteur inconnu » quand
+ *   `authorName` vaut `null` (2026-09-04) — jamais l'UUID `authorId`
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -118,6 +120,14 @@ const COMMENT: ForumComment = {
   authorRole: 'eleve',
   content: 'Merci pour ce sujet !',
   createdAt: '2026-06-18T10:00:00Z',
+  authorName: { firstName: 'Camille', lastName: 'Durand' },
+}
+
+const COMMENT_UNKNOWN_AUTHOR: ForumComment = {
+  ...COMMENT,
+  id: 'comment-2',
+  content: 'Un commentaire sans auteur résolu.',
+  authorName: null,
 }
 
 function renderPage(forumId = 'forum-1', topicId = 'topic-1') {
@@ -355,5 +365,39 @@ describe('ForumTopicDetailPage', () => {
       expect(screen.getByText('Sujet général')).toBeDefined()
     })
     expect(screen.queryByRole('button', { name: /valider le sujet/i })).toBeNull()
+  })
+
+  it("affiche le prénom et le nom résolus de l'auteur d'un commentaire", async () => {
+    mockFetchForumTopicComments.mockResolvedValue({
+      data: [COMMENT],
+      page: 1,
+      limit: 20,
+      total: 1,
+      totalPages: 1,
+    })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Merci pour ce sujet !')).toBeDefined()
+    })
+    expect(screen.getByText(/Par Camille Durand/)).toBeDefined()
+    expect(screen.queryByText('other-user')).toBeNull()
+  })
+
+  it("affiche « Auteur inconnu » quand authorName vaut null, sans jamais afficher l'UUID", async () => {
+    mockFetchForumTopicComments.mockResolvedValue({
+      data: [COMMENT_UNKNOWN_AUTHOR],
+      page: 1,
+      limit: 20,
+      total: 1,
+      totalPages: 1,
+    })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Un commentaire sans auteur résolu.')).toBeDefined()
+    })
+    expect(screen.getByText(/Par Auteur inconnu/)).toBeDefined()
+    expect(screen.queryByText('other-user')).toBeNull()
   })
 })

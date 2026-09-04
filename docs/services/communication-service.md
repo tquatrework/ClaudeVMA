@@ -347,10 +347,18 @@ test/
 2. **Aucune route `GET /internal/profiles/search-by-name` n'existe côté `profile-service`.**
    Contrat attendu documenté dans `docs/routes.md` (section communication-service) : à construire
    pour que `GET /contacts/search/by-name` cesse de renvoyer une `ServiceUnavailableException`.
-3. **Format exact de `GET /internal/accounts/by-login-identifier` (identity-access-service) non
-   confirmé empiriquement** — `IdentityAccessClient` suppose `{userId, loginIdentifier, role}` par
-   analogie avec `GET /internal/accounts/by-user-id/:userId`, à vérifier/corriger avec
-   `identity-access-service`.
+3. **Résolu le 2026-09-04.** `identity-access-service` a vérifié empiriquement le contrat réel de
+   `GET /internal/accounts/by-login-identifier` contre la pile réelle : la réponse en succès est
+   `{userId, role}`, **sans `loginIdentifier`** (l'hypothèse `{userId, loginIdentifier, role}` par
+   analogie avec `GET /internal/accounts/by-user-id/:userId` était fausse, corrigée dans
+   `docs/routes.md`). `IdentityAccessClient.findByLoginIdentifier` et
+   `ContactRequestService.searchByLoginIdentifier` lisaient `response.loginIdentifier` (toujours
+   `undefined` en réalité) au lieu de réutiliser le paramètre de recherche déjà connu de
+   l'appelant — corrigé : le type `AccountByLoginIdentifier` n'expose plus ce champ,
+   `searchByLoginIdentifier` renvoie désormais le `loginIdentifier` fourni en entrée. Le mock e2e
+   (`identityAccessClientStub` dans `contact.e2e-spec.ts`), qui renvoyait auparavant
+   `{userId, loginIdentifier, role}` en écho — masquant le bug — a été aligné sur le contrat réel
+   (`{userId, role}`).
 4. **Payload exact des événements de relation, une fois publiés par `profile-service`, non
    vérifié empiriquement** (`teacherId`/`studentId`, `financeOwnerId`/`studentId`,
    `animatorId`/`teacherId` supposés par analogie avec les corps de réponse REST correspondants) —

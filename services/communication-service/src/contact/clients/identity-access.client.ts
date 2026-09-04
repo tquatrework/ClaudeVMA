@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 
 export interface AccountByLoginIdentifier {
   userId: string;
-  loginIdentifier: string;
   role: string;
 }
 
@@ -26,9 +25,10 @@ export class IdentityAccessClient {
 
   /**
    * docs/routes.md > identity-access-service > API interne > GET /internal/accounts/by-login-identifier
-   * (already exists — no blocker here, but the exact response shape was not fully documented;
-   * assumed `{userId, loginIdentifier, role}` by analogy with `GET /internal/accounts/by-user-id/:userId`
-   * — see the session report for the confirmation to request from identity-access-service).
+   * Real contract confirmed empirically by identity-access-service against the real stack
+   * (2026-09-04): success response is `{userId, role}` — no `loginIdentifier` field. Callers
+   * must reuse the `loginIdentifier` they already passed as a search parameter, never read it
+   * back from the response.
    */
   async findByLoginIdentifier(loginIdentifier: string): Promise<AccountByLoginIdentifier | null> {
     const url = new URL(`${this.baseUrl()}/internal/accounts/by-login-identifier`);

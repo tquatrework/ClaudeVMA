@@ -1,21 +1,32 @@
 /**
  * ForumModerationPanel — community-path-service
  *
- * Panneau de modération d'un forum : exclusion individuelle d'un membre précis
- * (`POST /forums/:id/exclusions`), mécanisme inchangé par la refonte du 2026-09-04 mais dont le
- * périmètre de rôle a changé : réservé au propriétaire du forum (de fait toujours un RP depuis
- * cette date, la création étant désormais réservée au RP) ou à tout responsable pédagogique — donc
- * réservé au RP côté front, l'AP ayant perdu ce droit en même temps que la création.
+ * Panneau de modération d'un forum :
+ * - Exclusion individuelle d'un membre précis (`POST /forums/:id/exclusions`), mécanisme inchangé
+ *   par la refonte du 2026-09-04 mais dont le périmètre de rôle a changé : réservé au propriétaire
+ *   du forum (de fait toujours un RP depuis cette date) ou à tout responsable pédagogique — donc
+ *   réservé au RP côté front, l'AP ayant perdu ce droit en même temps que la création.
+ * - File de validation des sujets en attente (ajouté le 2026-09-04, complément « Sujets (topics) »)
+ *   : liste les sujets `pending_validation` de ce forum (`GET /forums/:id/topics`, qui les inclut
+ *   déjà pour un RP), avec un bouton Valider/Refuser par sujet
+ *   (`POST /forums/:id/topics/:topicId/decision`) — même endroit cohérent que l'exclusion plutôt
+ *   qu'un écran séparé sans lien avec le panneau de modération existant.
  *
  * Routes API consommées :
  *   POST /forums/:id/exclusions
+ *   GET  /forums/:id/topics
+ *   POST /forums/:id/topics/:topicId/decision
  */
 
 import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { useForumTopics } from '../hooks/community/useForumTopics'
+import { decideForumTopic } from '../api/forumTopics'
 import { createForumExclusion, type ForumExclusion } from '../api/forums'
+import { getErrorMessage } from '../utils/apiError'
+import { FORUM_LABELS } from '../utils/forumLabels'
 
 export default function ForumModerationPanel() {
   const { forumId } = useParams<{ forumId: string }>()
@@ -28,6 +39,15 @@ export default function ForumModerationPanel() {
   const [isExcluding, setIsExcluding] = useState(false)
   const [exclusionError, setExclusionError] = useState<string | null>(null)
   const [exclusionSuccess, setExclusionSuccess] = useState<string | null>(null)
+
+  const {
+    topics,
+    isLoading: isLoadingTopics,
+    loadError: topicsLoadError,
+    refetch: refetchTopics,
+  } = useForumTopics(forumId)
+  const [decidingTopicId, setDecidingTopicId] = useState<string | null>(null)
+  const [decideError, setDecideError] = useState<string | null>(null)
 
   const canModerate = hasRole('responsable_pedagogique')
 
@@ -47,6 +67,23 @@ export default function ForumModerationPanel() {
         <p className="text-red-600 text-sm">Identifiant du forum manquant.</p>
       </Layout>
     )
+  }
+
+  const pendingTopics = topics.filter(
+    (topic) => topic.status === 'pending_validation' && !topic.isDefault,
+  )
+
+  const handleDecideTopic = async (topicId: string, decision: 'validated' | 'rejected') => {
+    setDecidingTopicId(topicId)
+    setDecideError(null)
+    try {
+      await decideForumTopic(forumId, topicId, { decision })
+      refetchTopics()
+    } catch (caughtError: unknown) {
+      setDecideError(getErrorMessage(caughtError, FORUM_LABELS.decideTopicError))
+    } finally {
+      setDecidingTopicId(null)
+    }
   }
 
   const handleExcludeMember = async (event: React.FormEvent) => {
@@ -95,6 +132,56 @@ export default function ForumModerationPanel() {
           <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded font-medium">
             Réservé modérateurs
           </span>
+        </div>
+
+        {/* File de validation des sujets en attente */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+          <h2 className="text-base font-semibold text-gray-800">
+            {FORUM_LABELS.pendingTopicsModerationTitle}
+          </h2>
+
+          {isLoadingTopics && <p className="text-sm text-gray-400">Chargement des sujets…</p>}
+          {topicsLoadError && <p className="text-red-600 text-sm">{topicsLoadError}</p>}
+          {decideError && <p className="text-red-600 text-sm">{decideError}</p>}
+
+          {!isLoadingTopics && !topicsLoadError && pendingTopics.length === 0 && (
+            <p className="text-sm text-gray-500">{FORUM_LABELS.emptyPendingTopics}</p>
+          )}
+
+          {!isLoadingTopics && pendingTopics.length > 0 && (
+            <ul className="space-y-2">
+              {pendingTopics.map((topic) => (
+                <li
+                  key={topic.id}
+                  className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3"
+                >
+                  <span className="text-sm text-gray-800">{topic.title}</span>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleDecideTopic(topic.id, 'validated')}
+                      disabled={decidingTopicId === topic.id}
+                      className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {decidingTopicId === topic.id
+                        ? FORUM_LABELS.validatingTopic
+                        : FORUM_LABELS.validateTopic}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDecideTopic(topic.id, 'rejected')}
+                      disabled={decidingTopicId === topic.id}
+                      className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {decidingTopicId === topic.id
+                        ? FORUM_LABELS.rejectingTopic
+                        : FORUM_LABELS.rejectTopic}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Formulaire d'exclusion */}

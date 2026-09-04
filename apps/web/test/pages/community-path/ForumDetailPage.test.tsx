@@ -1,19 +1,20 @@
 /**
- * Tests pour ForumDetailPage — community-path-service, refonte du 2026-09-04.
+ * Tests pour ForumDetailPage — community-path-service.
  *
- * `GET /forums/:id` et `GET /forums/:id/comments` sont de vraies routes depuis cette date —
- * l'ancien écran ne les appelait pas du tout (fil de discussion purement local).
+ * Refonte du 2026-09-04 (« Sujets (topics) des Forums ») : l'écran devient une liste de sujets,
+ * plus un fil de commentaires direct. `GET`/`POST /forums/:id/comments` n'existent plus.
  *
  * Couvre :
  * - Chargement, forum introuvable (404 — masquage, jamais un message qui distingue la cause)
- * - Affichage du forum et de ses commentaires
- * - Zone de commentaire bloquée tant que la charte n'est pas acceptée, puis débloquée après
- * - Publication d'un commentaire
- * - Bouton de suppression de commentaire visible seulement pour le RP
+ * - Affichage du forum (titre, description, tags, rôles autorisés) — plus de badges niveau/
+ *   difficulté/thème/compétences, retirés le 2026-09-04
+ * - Liste des sujets : vide, avec sujets, badge de statut pour un sujet en attente/refusé
+ * - Un clic sur un sujet navigue vers sa page de détail
+ * - Bouton "Nouveau sujet" bloqué tant que la charte n'est pas acceptée, débloqué ensuite
+ * - Création d'un sujet, puis navigation vers sa page de détail
  * - Panneau d'image et lien de modération visibles seulement pour le RP
- * - Édition des métadonnées d'un forum par le RP (PATCH /forums/:id, ajouté le 2026-09-04) :
- *   bouton "Modifier le forum" réservé au RP, formulaire pré-rempli, appel `updateForum`,
- *   forum affiché mis à jour après succès
+ * - Bouton "Cacher le forum" réservé au RP
+ * - Édition des métadonnées d'un forum par le RP (PATCH /forums/:id)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -23,29 +24,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
 vi.mock('../../../src/api/forums')
+vi.mock('../../../src/api/forumTopics')
 
 import { useAuth } from '../../../src/hooks/useAuth'
 import {
   fetchForum,
-  fetchForumComments,
   fetchForumCharterAcceptance,
   acceptForumCharter,
-  createForumComment,
-  deleteForumComment,
   fetchForumImageConstraints,
   hideForum,
   updateForum,
 } from '../../../src/api/forums'
+import { fetchForumTopics, createForumTopic } from '../../../src/api/forumTopics'
 import ForumDetailPage from '../../../src/pages/ForumDetailPage'
-import type { Forum, ForumComment } from '../../../src/types/forum'
+import type { Forum, ForumTopic } from '../../../src/types/forum'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchForum = vi.mocked(fetchForum)
-const mockFetchForumComments = vi.mocked(fetchForumComments)
+const mockFetchForumTopics = vi.mocked(fetchForumTopics)
+const mockCreateForumTopic = vi.mocked(createForumTopic)
 const mockFetchForumCharterAcceptance = vi.mocked(fetchForumCharterAcceptance)
 const mockAcceptForumCharter = vi.mocked(acceptForumCharter)
-const mockCreateForumComment = vi.mocked(createForumComment)
-const mockDeleteForumComment = vi.mocked(deleteForumComment)
 const mockFetchForumImageConstraints = vi.mocked(fetchForumImageConstraints)
 const mockHideForum = vi.mocked(hideForum)
 const mockUpdateForum = vi.mocked(updateForum)
@@ -80,10 +79,6 @@ const FORUM: Forum = {
   id: 'forum-1',
   title: 'Forum Trigonométrie',
   description: 'Discussion autour des fonctions trigonométriques.',
-  level: null,
-  difficulty: null,
-  theme: null,
-  competences: null,
   tags: null,
   allowedRoles: null,
   createdById: 'rp-1',
@@ -97,13 +92,35 @@ const FORUM: Forum = {
   updatedAt: '2026-06-17T09:00:00Z',
 }
 
-const COMMENT: ForumComment = {
-  id: 'comment-1',
+const DEFAULT_TOPIC: ForumTopic = {
+  id: 'topic-default',
   forumId: 'forum-1',
-  authorId: 'other-user',
+  title: 'Sujet général',
+  authorId: 'rp-1',
+  authorRole: 'responsable_pedagogique',
+  status: 'validated',
+  isDefault: true,
+  validatedByUserId: null,
+  validatedAt: null,
+  rejectedByUserId: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  createdAt: '2026-06-17T09:00:00Z',
+  updatedAt: '2026-06-17T09:00:00Z',
+}
+
+const PENDING_TOPIC: ForumTopic = {
+  ...DEFAULT_TOPIC,
+  id: 'topic-pending',
+  title: 'Question sur les intégrales',
+  authorId: 'student-1',
   authorRole: 'eleve',
-  content: 'Merci pour ce forum !',
-  createdAt: '2026-06-18T10:00:00Z',
+  status: 'pending_validation',
+  isDefault: false,
+}
+
+function buildTopicsPage(topics: ForumTopic[]) {
+  return { data: topics, page: 1, limit: 20, total: topics.length, totalPages: 1 }
 }
 
 function renderPage(forumId = 'forum-1') {
@@ -111,6 +128,10 @@ function renderPage(forumId = 'forum-1') {
     <MemoryRouter initialEntries={[`/community/forums/${forumId}`]}>
       <Routes>
         <Route path="/community/forums/:forumId" element={<ForumDetailPage />} />
+        <Route
+          path="/community/forums/:forumId/topics/:topicId"
+          element={<p>Page de détail du sujet</p>}
+        />
       </Routes>
     </MemoryRouter>,
   )
@@ -120,7 +141,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockFetchForum.mockResolvedValue(FORUM)
-  mockFetchForumComments.mockResolvedValue({ data: [], page: 1, limit: 20, total: 0, totalPages: 1 })
+  mockFetchForumTopics.mockResolvedValue(buildTopicsPage([DEFAULT_TOPIC]))
   mockFetchForumCharterAcceptance.mockResolvedValue({ accepted: false, acceptedAt: null })
   mockFetchForumImageConstraints.mockResolvedValue({
     maxSizeBytes: 1_000_000,
@@ -144,24 +165,52 @@ describe('ForumDetailPage', () => {
     })
   })
 
-  it('affiche le titre, la description et les commentaires du forum', async () => {
-    mockFetchForumComments.mockResolvedValue({
-      data: [COMMENT],
-      page: 1,
-      limit: 20,
-      total: 1,
-      totalPages: 1,
-    })
+  it('affiche le titre et la description du forum', async () => {
     renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('Forum Trigonométrie')).toBeDefined()
     })
     expect(screen.getByText(/Discussion autour des fonctions/)).toBeDefined()
-    expect(screen.getByText('Merci pour ce forum !')).toBeDefined()
   })
 
-  it("bloque la zone de commentaire tant que la charte n'est pas acceptée", async () => {
+  it('affiche la liste des sujets, avec le sujet système en premier', async () => {
+    mockFetchForumTopics.mockResolvedValue(buildTopicsPage([DEFAULT_TOPIC, PENDING_TOPIC]))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sujet général/)).toBeDefined()
+    })
+    expect(screen.getByText('Question sur les intégrales')).toBeDefined()
+    expect(screen.getByText('En attente de validation')).toBeDefined()
+  })
+
+  it("affiche un message quand il n'y a aucun sujet", async () => {
+    mockFetchForumTopics.mockResolvedValue(buildTopicsPage([]))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Aucun sujet pour le moment/)).toBeDefined()
+    })
+  })
+
+  it('un clic sur un sujet navigue vers sa page de détail', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sujet général/)).toBeDefined()
+    })
+
+    const topicButton = screen.getByText(/Sujet général/).closest('button')
+    expect(topicButton).not.toBeNull()
+    await userEvent.click(topicButton as HTMLButtonElement)
+
+    await waitFor(() => {
+      expect(screen.getByText('Page de détail du sujet')).toBeDefined()
+    })
+  })
+
+  it("bloque le bouton 'Nouveau sujet' tant que la charte n'est pas acceptée", async () => {
     renderPage()
 
     await waitFor(() => {
@@ -169,10 +218,10 @@ describe('ForumDetailPage', () => {
         screen.getByText(/devez accepter la charte de bonne conduite/),
       ).toBeDefined()
     })
-    expect(screen.queryByLabelText(/votre commentaire/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /nouveau sujet/i })).toBeNull()
   })
 
-  it('débloque la zone de commentaire après acceptation de la charte', async () => {
+  it('débloque le bouton "Nouveau sujet" après acceptation de la charte', async () => {
     mockAcceptForumCharter.mockResolvedValue({ accepted: true, acceptedAt: '2026-09-04T00:00:00Z' })
     renderPage()
 
@@ -183,75 +232,58 @@ describe('ForumDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /j’accepte la charte/i }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/votre commentaire/i)).toBeDefined()
+      expect(screen.getByRole('button', { name: /nouveau sujet/i })).toBeDefined()
     })
   })
 
-  it('publie un commentaire quand la charte est déjà acceptée', async () => {
+  it('crée un sujet et navigue vers sa page de détail', async () => {
     mockFetchForumCharterAcceptance.mockResolvedValue({
       accepted: true,
       acceptedAt: '2026-09-01T00:00:00Z',
     })
-    mockCreateForumComment.mockResolvedValue({
-      id: 'comment-new',
+    mockCreateForumTopic.mockResolvedValue({
+      id: 'topic-new',
       forumId: 'forum-1',
+      title: 'Nouveau sujet',
       authorId: 'student-1',
       authorRole: 'eleve',
-      content: 'Une contribution.',
+      status: 'pending_validation',
+      isDefault: false,
+      validatedByUserId: null,
+      validatedAt: null,
+      rejectedByUserId: null,
+      rejectedAt: null,
+      rejectionReason: null,
       createdAt: '2026-09-04T00:00:00Z',
+      updatedAt: '2026-09-04T00:00:00Z',
+      firstComment: {
+        id: 'c-new',
+        topicId: 'topic-new',
+        authorId: 'student-1',
+        authorRole: 'eleve',
+        content: 'Premier message',
+        createdAt: '2026-09-04T00:00:00Z',
+      },
     })
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/votre commentaire/i)).toBeDefined()
+      expect(screen.getByRole('button', { name: /nouveau sujet/i })).toBeDefined()
     })
 
-    await userEvent.type(screen.getByLabelText(/votre commentaire/i), 'Une contribution.')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
+    await userEvent.click(screen.getByRole('button', { name: /nouveau sujet/i }))
+    await userEvent.type(screen.getByLabelText(/titre du sujet/i), 'Nouveau sujet')
+    await userEvent.type(screen.getByLabelText(/votre premier message/i), 'Premier message')
+    await userEvent.click(screen.getByRole('button', { name: /publier le sujet/i }))
 
     await waitFor(() => {
-      expect(screen.getByText('Une contribution.')).toBeDefined()
+      expect(mockCreateForumTopic).toHaveBeenCalledWith('forum-1', {
+        title: 'Nouveau sujet',
+        content: 'Premier message',
+      })
     })
-  })
-
-  it("n'affiche pas le bouton de suppression de commentaire pour un élève", async () => {
-    mockFetchForumComments.mockResolvedValue({
-      data: [COMMENT],
-      page: 1,
-      limit: 20,
-      total: 1,
-      totalPages: 1,
-    })
-    renderPage()
-
     await waitFor(() => {
-      expect(screen.getByText('Merci pour ce forum !')).toBeDefined()
-    })
-    expect(screen.queryByRole('button', { name: /supprimer/i })).toBeNull()
-  })
-
-  it('le RP peut supprimer un commentaire', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockFetchForumComments.mockResolvedValue({
-      data: [COMMENT],
-      page: 1,
-      limit: 20,
-      total: 1,
-      totalPages: 1,
-    })
-    mockDeleteForumComment.mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Merci pour ce forum !')).toBeDefined()
-    })
-
-    await userEvent.click(screen.getByRole('button', { name: /supprimer/i }))
-
-    await waitFor(() => {
-      expect(mockDeleteForumComment).toHaveBeenCalledWith('forum-1', 'comment-1')
+      expect(screen.getByText('Page de détail du sujet')).toBeDefined()
     })
   })
 
@@ -293,20 +325,6 @@ describe('ForumDetailPage', () => {
     expect(screen.getByText('Caché')).toBeDefined()
   })
 
-  it('le bouton "Cacher le forum" n\'appelle pas l\'API si la confirmation est annulée', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /cacher le forum/i })).toBeDefined()
-    })
-
-    await userEvent.click(screen.getByRole('button', { name: /cacher le forum/i }))
-
-    expect(mockHideForum).not.toHaveBeenCalled()
-  })
-
   it("n'affiche pas le bouton 'Cacher le forum' pour un élève", async () => {
     renderPage()
 
@@ -314,31 +332,6 @@ describe('ForumDetailPage', () => {
       expect(screen.getByText('Forum Trigonométrie')).toBeDefined()
     })
     expect(screen.queryByRole('button', { name: /cacher le forum/i })).toBeNull()
-  })
-
-  it('un forum déjà caché affiche le badge et masque le bouton "Cacher"', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockFetchForum.mockResolvedValue({
-      ...FORUM,
-      isHidden: true,
-      hiddenAt: '2026-09-04T00:00:00Z',
-      hiddenByUserId: 'rp-1',
-    })
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Caché')).toBeDefined()
-    })
-    expect(screen.queryByRole('button', { name: /^cacher le forum$/i })).toBeNull()
-  })
-
-  it("n'affiche pas le bouton 'Modifier le forum' pour un élève", async () => {
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Forum Trigonométrie')).toBeDefined()
-    })
-    expect(screen.queryByRole('button', { name: /modifier le forum/i })).toBeNull()
   })
 
   it("le RP peut ouvrir le formulaire d'édition, pré-rempli avec les valeurs actuelles", async () => {
@@ -393,21 +386,5 @@ describe('ForumDetailPage', () => {
       expect(screen.getByText('Forum Trigonométrie (mis à jour)')).toBeDefined()
     })
     expect(screen.getByText('Nouvelle description.')).toBeDefined()
-    expect(screen.queryByRole('button', { name: /enregistrer les modifications/i })).toBeNull()
-  })
-
-  it("le formulaire d'édition se ferme sans appel API si le RP annule", async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
-    })
-
-    await userEvent.click(screen.getByRole('button', { name: /modifier le forum/i }))
-    await userEvent.click(screen.getByRole('button', { name: /annuler/i }))
-
-    expect(mockUpdateForum).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
   })
 })

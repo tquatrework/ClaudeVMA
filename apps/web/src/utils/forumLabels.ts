@@ -6,7 +6,7 @@
 import { formatFileSize } from './fileSize'
 import { formatAcceptedImageFormats } from './profileAvatar'
 import { getRoleLabel } from './role'
-import type { ForumRestrictableRole } from '../types/forum'
+import type { ForumRestrictableRole, ForumTopicStatus } from '../types/forum'
 
 export const FORUM_LABELS = {
   emptyList: 'Aucun forum disponible pour le moment.',
@@ -52,6 +52,30 @@ export const FORUM_LABELS = {
   saveChanges: 'Enregistrer les modifications',
   saving: 'Enregistrement…',
   updateForumError: 'Impossible de modifier ce forum.',
+
+  // ─── Sujets (topics), ajoutés le 2026-09-04 ───────────────────────────────
+  topicsTitle: 'Sujets',
+  newTopicButton: 'Nouveau sujet',
+  newTopicTitle: 'Créer un nouveau sujet',
+  topicTitleLabel: 'Titre du sujet',
+  topicFirstMessageLabel: 'Votre premier message',
+  createTopicSubmit: 'Publier le sujet',
+  creatingTopic: 'Publication…',
+  createTopicError: 'Impossible de créer ce sujet.',
+  emptyTopics: 'Aucun sujet pour le moment. Soyez le premier à en créer un !',
+  loadTopicsError: 'Impossible de charger les sujets.',
+  loadTopicError: 'Impossible de charger ce sujet.',
+  notFoundTopic: "Ce sujet n'existe pas ou n'est plus accessible.",
+  topicStatusPending: 'En attente de validation',
+  topicStatusRejected: 'Refusé',
+  validateTopic: 'Valider le sujet',
+  rejectTopic: 'Refuser le sujet',
+  validatingTopic: 'Validation…',
+  rejectingTopic: 'Refus…',
+  decideTopicError: 'Impossible de traiter ce sujet.',
+  pendingTopicsModerationTitle: 'Sujets en attente de validation',
+  emptyPendingTopics: 'Aucun sujet en attente de validation.',
+  backToTopics: '← Retour aux sujets',
 } as const
 
 /** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */
@@ -68,4 +92,12 @@ export function getForumImageFormatsHint(allowedMimeTypes: readonly string[]): s
 export function formatAllowedRolesLabel(allowedRoles: ForumRestrictableRole[] | null): string {
   if (!allowedRoles || allowedRoles.length === 0) return FORUM_LABELS.openToEveryone
   return allowedRoles.map((role) => getRoleLabel(role)).join(', ')
+}
+
+/** Libellé français d'un statut de sujet — `null` pour `validated`, qui ne porte aucun badge (un
+ * sujet validé est affiché comme un sujet normal, jamais annoté). */
+export function formatTopicStatusLabel(status: ForumTopicStatus): string | null {
+  if (status === 'pending_validation') return FORUM_LABELS.topicStatusPending
+  if (status === 'rejected') return FORUM_LABELS.topicStatusRejected
+  return null
 }

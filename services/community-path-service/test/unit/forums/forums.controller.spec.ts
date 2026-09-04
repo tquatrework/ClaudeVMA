@@ -26,6 +26,8 @@ import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/common/guards/roles.guard';
 import { CreateForumDto } from '../../../src/forums/dto/create-forum.dto';
 import { CreateForumCommentDto } from '../../../src/forums/dto/create-forum-comment.dto';
+import { CreateForumTopicDto } from '../../../src/forums/dto/create-forum-topic.dto';
+import { DecideForumTopicDto } from '../../../src/forums/dto/decide-forum-topic.dto';
 import { CreateForumExclusionDto } from '../../../src/forums/dto/create-forum-exclusion.dto';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 
@@ -37,9 +39,13 @@ const mockForumsService = {
   getForum: jest.fn(),
   updateForum: jest.fn(),
   hideForum: jest.fn(),
-  getForumComments: jest.fn(),
-  addComment: jest.fn(),
-  deleteComment: jest.fn(),
+  createTopic: jest.fn(),
+  findTopics: jest.fn(),
+  getTopic: jest.fn(),
+  decideTopic: jest.fn(),
+  addTopicComment: jest.fn(),
+  getTopicComments: jest.fn(),
+  deleteTopicComment: jest.fn(),
   excludeMember: jest.fn(),
   getCharter: jest.fn(),
   updateCharter: jest.fn(),
@@ -59,6 +65,7 @@ const RP_ID = 'rp-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID = 'ap-0000-4000-b000-bbbbbbbbbbbb';
 const ELEVE_ID = 'el-0000-4000-c000-cccccccccccc';
 const FORUM_ID = 'fr-0000-4000-0000-000000000000';
+const TOPIC_ID = 'tp-0000-4000-0000-000000000000';
 
 const rpUser = { id: RP_ID, email: 'rp@example.com', role: UserRole.RESPONSABLE_PEDAGOGIQUE, validationStatus: 'active', jti: 'jti-rp' };
 const apUser = { id: AP_ID, email: 'ap@example.com', role: UserRole.ANIMATEUR_PEDAGOGIQUE, validationStatus: 'active', jti: 'jti-ap' };
@@ -255,47 +262,166 @@ describe('ForumsController', () => {
     });
   });
 
-  // ─── GET /forums/:id/comments ────────────────────────────────────────────────
+  // ─── POST /forums/:id/topics ─────────────────────────────────────────────
 
-  describe('GET /forums/:id/comments — getForumComments()', () => {
+  describe('POST /forums/:id/topics — createTopic()', () => {
+    const topicDto: CreateForumTopicDto = { title: 'Une question', content: 'Contenu du premier message' };
+    const mockTopic = { id: TOPIC_ID, forumId: FORUM_ID, authorId: ELEVE_ID, title: 'Une question', firstComment: { id: 'cmt-1' } };
+
+    it('délègue au service avec forumId, dto, userId et rôle', async () => {
+      mockForumsService.createTopic.mockResolvedValue(mockTopic);
+
+      const result = await controller.createTopic(FORUM_ID, topicDto, eleveUser);
+
+      expect(mockForumsService.createTopic).toHaveBeenCalledWith(FORUM_ID, topicDto, ELEVE_ID, UserRole.ELEVE);
+      expect(result).toEqual(mockTopic);
+    });
+
+    it('propage NotFoundException si le forum est introuvable ou non accessible (masqué)', async () => {
+      mockForumsService.createTopic.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+
+      await expect(controller.createTopic(FORUM_ID, topicDto, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+
+    it('propage ForbiddenException si la charte n\'est pas acceptée', async () => {
+      mockForumsService.createTopic.mockRejectedValue(
+        new ForbiddenException({ code: 'CHARTER_NOT_ACCEPTED', message: 'Charte non acceptée' }),
+      );
+
+      await expect(controller.createTopic(FORUM_ID, topicDto, eleveUser)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─── GET /forums/:id/topics ───────────────────────────────────────────────
+
+  describe('GET /forums/:id/topics — findTopics()', () => {
     const mockPage = {
-      data: [{ id: 'cmt-1', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date() }],
+      data: [{ id: TOPIC_ID, forumId: FORUM_ID, title: 'Une question' }],
       page: 1,
       limit: 20,
       total: 1,
       totalPages: 1,
     };
 
-    it('délègue au service avec forumId, le rôle courant et la pagination par défaut', async () => {
-      mockForumsService.getForumComments.mockResolvedValue(mockPage);
+    it('délègue au service avec forumId, userId, le rôle courant et la pagination par défaut', async () => {
+      mockForumsService.findTopics.mockResolvedValue(mockPage);
 
-      const result = await controller.getForumComments(FORUM_ID, eleveUser);
+      const result = await controller.findTopics(FORUM_ID, eleveUser);
 
-      expect(mockForumsService.getForumComments).toHaveBeenCalledWith(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+      expect(mockForumsService.findTopics).toHaveBeenCalledWith(FORUM_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
       expect(result).toEqual(mockPage);
     });
 
     it('transmet page/limit fournis en query', async () => {
-      mockForumsService.getForumComments.mockResolvedValue(mockPage);
+      mockForumsService.findTopics.mockResolvedValue(mockPage);
 
-      await controller.getForumComments(FORUM_ID, eleveUser, '2', '10');
+      await controller.findTopics(FORUM_ID, eleveUser, '2', '10');
 
-      expect(mockForumsService.getForumComments).toHaveBeenCalledWith(FORUM_ID, UserRole.ELEVE, { page: 2, limit: 10 });
+      expect(mockForumsService.findTopics).toHaveBeenCalledWith(FORUM_ID, ELEVE_ID, UserRole.ELEVE, { page: 2, limit: 10 });
     });
 
     it('lève BadRequestException si limit dépasse le plafond', async () => {
-      await expect(controller.getForumComments(FORUM_ID, eleveUser, '1', '101')).rejects.toThrow(BadRequestException);
-      expect(mockForumsService.getForumComments).not.toHaveBeenCalled();
-    });
-
-    it('lève BadRequestException si page/limit ne sont pas des entiers', async () => {
-      await expect(controller.getForumComments(FORUM_ID, eleveUser, 'abc')).rejects.toThrow(BadRequestException);
+      await expect(controller.findTopics(FORUM_ID, eleveUser, '1', '101')).rejects.toThrow(BadRequestException);
+      expect(mockForumsService.findTopics).not.toHaveBeenCalled();
     });
 
     it('propage NotFoundException (masquage) si le forum est introuvable ou non accessible', async () => {
-      mockForumsService.getForumComments.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+      mockForumsService.findTopics.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
 
-      await expect(controller.getForumComments(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
+      await expect(controller.findTopics(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── GET /forums/:id/topics/:topicId ──────────────────────────────────────
+
+  describe('GET /forums/:id/topics/:topicId — getTopic()', () => {
+    const mockTopic = { id: TOPIC_ID, forumId: FORUM_ID, title: 'Une question' };
+
+    it('délègue au service avec forumId, topicId, userId et rôle', async () => {
+      mockForumsService.getTopic.mockResolvedValue(mockTopic);
+
+      const result = await controller.getTopic(FORUM_ID, TOPIC_ID, eleveUser);
+
+      expect(mockForumsService.getTopic).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE);
+      expect(result).toEqual(mockTopic);
+    });
+
+    it('propage NotFoundException (masquage) si le sujet est introuvable ou non accessible', async () => {
+      mockForumsService.getTopic.mockRejectedValue(new NotFoundException(`Sujet ${TOPIC_ID} introuvable`));
+
+      await expect(controller.getTopic(FORUM_ID, TOPIC_ID, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── POST /forums/:id/topics/:topicId/decision ────────────────────────────
+
+  describe('POST /forums/:id/topics/:topicId/decision — decideTopic()', () => {
+    const decideDto: DecideForumTopicDto = { decision: 'validated' };
+    const mockTopic = { id: TOPIC_ID, forumId: FORUM_ID, status: 'validated' };
+
+    it('délègue au service avec forumId, topicId, dto, userId et rôle', async () => {
+      mockForumsService.decideTopic.mockResolvedValue(mockTopic);
+
+      const result = await controller.decideTopic(FORUM_ID, TOPIC_ID, decideDto, rpUser);
+
+      expect(mockForumsService.decideTopic).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, decideDto, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+      expect(result).toEqual(mockTopic);
+    });
+
+    it("propage ForbiddenException si l'appelant n'est pas RP", async () => {
+      mockForumsService.decideTopic.mockRejectedValue(new ForbiddenException());
+
+      await expect(controller.decideTopic(FORUM_ID, TOPIC_ID, decideDto, apUser)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('propage BadRequestException sur le sujet système (isDefault)', async () => {
+      mockForumsService.decideTopic.mockRejectedValue(new BadRequestException());
+
+      await expect(controller.decideTopic(FORUM_ID, TOPIC_ID, decideDto, rpUser)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ─── GET /forums/:id/topics/:topicId/comments ─────────────────────────────
+
+  describe('GET /forums/:id/topics/:topicId/comments — getTopicComments()', () => {
+    const mockPage = {
+      data: [{ id: 'cmt-1', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date() }],
+      page: 1,
+      limit: 20,
+      total: 1,
+      totalPages: 1,
+    };
+
+    it('délègue au service avec forumId, topicId, userId, le rôle courant et la pagination par défaut', async () => {
+      mockForumsService.getTopicComments.mockResolvedValue(mockPage);
+
+      const result = await controller.getTopicComments(FORUM_ID, TOPIC_ID, eleveUser);
+
+      expect(mockForumsService.getTopicComments).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+      expect(result).toEqual(mockPage);
+    });
+
+    it('transmet page/limit fournis en query', async () => {
+      mockForumsService.getTopicComments.mockResolvedValue(mockPage);
+
+      await controller.getTopicComments(FORUM_ID, TOPIC_ID, eleveUser, '2', '10');
+
+      expect(mockForumsService.getTopicComments).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 2, limit: 10 });
+    });
+
+    it('lève BadRequestException si limit dépasse le plafond', async () => {
+      await expect(controller.getTopicComments(FORUM_ID, TOPIC_ID, eleveUser, '1', '101')).rejects.toThrow(BadRequestException);
+      expect(mockForumsService.getTopicComments).not.toHaveBeenCalled();
+    });
+
+    it('lève BadRequestException si page/limit ne sont pas des entiers', async () => {
+      await expect(controller.getTopicComments(FORUM_ID, TOPIC_ID, eleveUser, 'abc')).rejects.toThrow(BadRequestException);
+    });
+
+    it('propage NotFoundException (masquage) si le sujet est introuvable ou non accessible', async () => {
+      mockForumsService.getTopicComments.mockRejectedValue(new NotFoundException(`Sujet ${TOPIC_ID} introuvable`));
+
+      await expect(controller.getTopicComments(FORUM_ID, TOPIC_ID, eleveUser)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -400,59 +526,59 @@ describe('ForumsController', () => {
     });
   });
 
-  // ─── POST /forums/:id/comments ───────────────────────────────────────────────
+  // ─── POST /forums/:id/topics/:topicId/comments ────────────────────────────
 
-  describe('POST /forums/:id/comments — addComment()', () => {
+  describe('POST /forums/:id/topics/:topicId/comments — addTopicComment()', () => {
     const commentDto: CreateForumCommentDto = { content: 'Très bonne question !' };
 
     const mockComment = {
       id: 'cmt-001',
-      forumId: FORUM_ID,
+      topicId: TOPIC_ID,
       authorId: ELEVE_ID,
       authorRole: UserRole.ELEVE,
       content: 'Très bonne question !',
       createdAt: new Date(),
     };
 
-    it('délègue au service avec forumId, dto, userId et rôle', async () => {
-      mockForumsService.addComment.mockResolvedValue(mockComment);
+    it('délègue au service avec forumId, topicId, dto, userId et rôle', async () => {
+      mockForumsService.addTopicComment.mockResolvedValue(mockComment);
 
-      const result = await controller.addComment(FORUM_ID, commentDto, eleveUser);
+      const result = await controller.addTopicComment(FORUM_ID, TOPIC_ID, commentDto, eleveUser);
 
-      expect(mockForumsService.addComment).toHaveBeenCalledWith(FORUM_ID, commentDto, ELEVE_ID, UserRole.ELEVE);
+      expect(mockForumsService.addTopicComment).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, commentDto, ELEVE_ID, UserRole.ELEVE);
       expect(result).toEqual(mockComment);
     });
 
-    it('propage NotFoundException si le forum est introuvable ou non accessible (masqué)', async () => {
-      mockForumsService.addComment.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+    it('propage NotFoundException si le sujet est introuvable ou non accessible (masqué)', async () => {
+      mockForumsService.addTopicComment.mockRejectedValue(new NotFoundException(`Sujet ${TOPIC_ID} introuvable`));
 
-      await expect(controller.addComment(FORUM_ID, commentDto, eleveUser)).rejects.toThrow(NotFoundException);
+      await expect(controller.addTopicComment(FORUM_ID, TOPIC_ID, commentDto, eleveUser)).rejects.toThrow(NotFoundException);
     });
 
     it('propage ForbiddenException si la charte n\'est pas acceptée', async () => {
-      mockForumsService.addComment.mockRejectedValue(
+      mockForumsService.addTopicComment.mockRejectedValue(
         new ForbiddenException({ code: 'CHARTER_NOT_ACCEPTED', message: 'Charte non acceptée' }),
       );
 
-      await expect(controller.addComment(FORUM_ID, commentDto, eleveUser)).rejects.toThrow(ForbiddenException);
+      await expect(controller.addTopicComment(FORUM_ID, TOPIC_ID, commentDto, eleveUser)).rejects.toThrow(ForbiddenException);
     });
   });
 
-  // ─── DELETE /forums/:id/comments/:commentId ──────────────────────────────
+  // ─── DELETE /forums/:id/topics/:topicId/comments/:commentId ──────────────
 
-  describe('DELETE /forums/:id/comments/:commentId — deleteComment()', () => {
-    it('délègue au service avec forumId, commentId et rôle', async () => {
-      mockForumsService.deleteComment.mockResolvedValue(undefined);
+  describe('DELETE /forums/:id/topics/:topicId/comments/:commentId — deleteTopicComment()', () => {
+    it('délègue au service avec forumId, topicId, commentId et rôle', async () => {
+      mockForumsService.deleteTopicComment.mockResolvedValue(undefined);
 
-      await controller.deleteComment(FORUM_ID, 'cmt-001', rpUser);
+      await controller.deleteTopicComment(FORUM_ID, TOPIC_ID, 'cmt-001', rpUser);
 
-      expect(mockForumsService.deleteComment).toHaveBeenCalledWith(FORUM_ID, 'cmt-001', UserRole.RESPONSABLE_PEDAGOGIQUE);
+      expect(mockForumsService.deleteTopicComment).toHaveBeenCalledWith(FORUM_ID, TOPIC_ID, 'cmt-001', UserRole.RESPONSABLE_PEDAGOGIQUE);
     });
 
     it('propage ForbiddenException si un non-RP tente de supprimer', async () => {
-      mockForumsService.deleteComment.mockRejectedValue(new ForbiddenException());
+      mockForumsService.deleteTopicComment.mockRejectedValue(new ForbiddenException());
 
-      await expect(controller.deleteComment(FORUM_ID, 'cmt-001', apUser)).rejects.toThrow(ForbiddenException);
+      await expect(controller.deleteTopicComment(FORUM_ID, TOPIC_ID, 'cmt-001', apUser)).rejects.toThrow(ForbiddenException);
     });
   });
 

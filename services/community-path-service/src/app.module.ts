@@ -5,6 +5,7 @@ import { ForumsModule } from './forums/forums.module';
 import { PathsModule } from './paths/paths.module';
 import { HealthModule } from './health/health.module';
 import { Forum } from './forums/entities/forum.entity';
+import { ForumTopic } from './forums/entities/forum-topic.entity';
 import { ForumComment } from './forums/entities/forum-comment.entity';
 import { ForumExclusion } from './forums/entities/forum-exclusion.entity';
 import { ForumCharterSetting } from './forums/entities/forum-charter-setting.entity';
@@ -25,6 +26,7 @@ import { Certificate } from './paths/entities/certificate.entity';
         url: configService.get<string>('DATABASE_URL'),
         entities: [
           Forum,
+          ForumTopic,
           ForumComment,
           ForumExclusion,
           ForumCharterSetting,

@@ -33,6 +33,8 @@ import {
 import { ForumsService } from './forums.service';
 import { CreateForumDto } from './dto/create-forum.dto';
 import { CreateForumCommentDto } from './dto/create-forum-comment.dto';
+import { CreateForumTopicDto } from './dto/create-forum-topic.dto';
+import { DecideForumTopicDto } from './dto/decide-forum-topic.dto';
 import { CreateForumExclusionDto } from './dto/create-forum-exclusion.dto';
 import { UpdateForumCharterDto } from './dto/update-forum-charter.dto';
 import { UpdateForumDto } from './dto/update-forum.dto';
@@ -295,18 +297,23 @@ export class ForumsController {
     return new StreamableFile(buffer);
   }
 
-  // ─── Commentaires ──────────────────────────────────────────────────────
+  // ─── Sujets (topics) ───────────────────────────────────────────────────
+  // Remplace l'ancien mécanisme de commentaires directement attachés au
+  // forum (POST/GET /forums/:id/comments, retirées le 2026-09-04 — voir
+  // docs/routes.md pour le détail complet du nouveau contrat).
 
-  @Post(':id/comments')
+  @Post(':id/topics')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Commenter un forum',
+    summary: 'Créer un sujet dans un forum',
     description:
-      "Le rôle de l'appelant doit être autorisé sur ce forum, il ne doit pas être exclu, et il doit avoir " +
-      'accepté la charte de bonne conduite au préalable (voir POST /forums/charter/acceptance).',
+      "N'importe quel membre du forum peut créer un sujet (pas réservé au RP). Même gate que pour " +
+      "commenter : accès au forum, pas exclu, charte de bonne conduite acceptée. Le premier message du " +
+      "sujet EST son premier commentaire — fourni ici via `content`. Statut à la création : `validated` " +
+      "immédiatement si le créateur est RP ou AP, `pending_validation` sinon (RP requis pour valider).",
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
-  @ApiResponse({ status: 201, description: 'Commentaire ajouté' })
+  @ApiResponse({ status: 201, description: 'Sujet créé, avec son premier commentaire (`firstComment`)' })
   @ApiResponse({
     status: 403,
     description:
@@ -314,37 +321,32 @@ export class ForumsController {
   })
   @ApiResponse({ status: 404, description: 'Forum introuvable ou non accessible à ce rôle' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
-  async addComment(
+  async createTopic(
     @Param('id') forumId: string,
-    @Body() createCommentDto: CreateForumCommentDto,
+    @Body() createTopicDto: CreateForumTopicDto,
     @CurrentUser() currentUser: AuthenticatedUser,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.forumsService.addComment(
-      forumId,
-      createCommentDto,
-      currentUser.id,
-      currentUser.role,
-    );
+    return this.forumsService.createTopic(forumId, createTopicDto, currentUser.id, currentUser.role);
   }
 
-  @Get(':id/comments')
+  @Get(':id/topics')
   @ApiOperation({
-    summary: "Lister les commentaires d'un forum",
+    summary: "Lister les sujets d'un forum",
     description:
-      "Ordre chronologique, du plus ancien au plus récent. Mêmes droits de lecture que le détail " +
-      'du forum (même masquage 404). Paginé dès l\'origine, mêmes conventions que le reste du projet ' +
-      '(page défaut 1, limit défaut 20, plafond 100).',
+      'Visibles : sujets validés, plus les siens propres (tous statuts), plus tout ce que voit un ' +
+      'administrateur (RP/AF/TI). Le sujet système "Sujet général" apparaît toujours en premier, les ' +
+      'autres du plus récent au plus ancien. Paginé (page défaut 1, limit défaut 20, plafond 100).',
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
   @ApiQuery({ name: 'page', required: false, description: 'Page, défaut 1' })
   @ApiQuery({ name: 'limit', required: false, description: 'Taille de page, défaut 20, maximum 100' })
-  @ApiResponse({ status: 200, description: 'Page de commentaires' })
+  @ApiResponse({ status: 200, description: 'Page de sujets' })
   @ApiResponse({ status: 400, description: '"page"/"limit" invalide ou "limit" > 100' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 404, description: 'Forum introuvable ou non accessible à ce rôle' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
-  async getForumComments(
+  async findTopics(
     @Param('id') forumId: string,
     @CurrentUser() currentUser: AuthenticatedUser,
     @Query('page') page?: string,
@@ -352,27 +354,141 @@ export class ForumsController {
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     const pagination = parsePagination(page, limit);
-    return this.forumsService.getForumComments(forumId, currentUser.role, pagination);
+    return this.forumsService.findTopics(forumId, currentUser.id, currentUser.role, pagination);
   }
 
-  @Delete(':id/comments/:commentId')
+  @Get(':id/topics/:topicId')
+  @ApiOperation({
+    summary: "Détail d'un sujet",
+    description:
+      "Même masquage 404 qu'un sujet non listé par GET /forums/:id/topics — ne révèle jamais " +
+      "l'existence d'un sujet auquel l'appelant n'a pas accès (non validé et pas le sien, ou forum " +
+      'inaccessible).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
+  @ApiResponse({ status: 200, description: 'Détail du sujet' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 404, description: 'Forum ou sujet introuvable, ou non accessible à ce rôle' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async getTopic(
+    @Param('id') forumId: string,
+    @Param('topicId') topicId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.getTopic(forumId, topicId, currentUser.id, currentUser.role);
+  }
+
+  @Post(':id/topics/:topicId/decision')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Valider ou refuser un sujet",
+    description:
+      "Réservé au RP (pas de scoping AP ici, à la différence du contenu pédagogique générique). " +
+      'Le sujet système "Sujet général" ne peut pas être soumis à cette décision (400).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
+  @ApiResponse({ status: 200, description: 'Sujet mis à jour (validated ou rejected)' })
+  @ApiResponse({ status: 400, description: 'Décision invalide, ou sujet système (isDefault) non soumis à validation' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant (réservé au RP)' })
+  @ApiResponse({ status: 404, description: 'Forum ou sujet introuvable' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async decideTopic(
+    @Param('id') forumId: string,
+    @Param('topicId') topicId: string,
+    @Body() decideDto: DecideForumTopicDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.decideTopic(forumId, topicId, decideDto, currentUser.id, currentUser.role);
+  }
+
+  // ─── Commentaires (au sein d'un sujet) ────────────────────────────────
+
+  @Post(':id/topics/:topicId/comments')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Commenter un sujet',
+    description:
+      'Le sujet doit être visible à l\'appelant (validé, ou le sien, ou administrateur), qui ne doit ' +
+      'pas être exclu du forum, et doit avoir accepté la charte de bonne conduite au préalable.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
+  @ApiResponse({ status: 201, description: 'Commentaire ajouté' })
+  @ApiResponse({
+    status: 403,
+    description:
+      "Exclu du forum, ou charte non acceptée (voir le champ `code: CHARTER_NOT_ACCEPTED` du corps de réponse)",
+  })
+  @ApiResponse({ status: 404, description: 'Forum ou sujet introuvable, ou non accessible à ce rôle' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async addTopicComment(
+    @Param('id') forumId: string,
+    @Param('topicId') topicId: string,
+    @Body() createCommentDto: CreateForumCommentDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.addTopicComment(
+      forumId,
+      topicId,
+      createCommentDto,
+      currentUser.id,
+      currentUser.role,
+    );
+  }
+
+  @Get(':id/topics/:topicId/comments')
+  @ApiOperation({
+    summary: "Lister les commentaires d'un sujet",
+    description:
+      "Ordre chronologique, du plus ancien au plus récent. Mêmes droits de lecture que le détail " +
+      'du sujet (même masquage 404). Paginé (page défaut 1, limit défaut 20, plafond 100).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page, défaut 1' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Taille de page, défaut 20, maximum 100' })
+  @ApiResponse({ status: 200, description: 'Page de commentaires' })
+  @ApiResponse({ status: 400, description: '"page"/"limit" invalide ou "limit" > 100' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 404, description: 'Forum ou sujet introuvable, ou non accessible à ce rôle' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async getTopicComments(
+    @Param('id') forumId: string,
+    @Param('topicId') topicId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    const pagination = parsePagination(page, limit);
+    return this.forumsService.getTopicComments(forumId, topicId, currentUser.id, currentUser.role, pagination);
+  }
+
+  @Delete(':id/topics/:topicId/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Supprimer un commentaire a posteriori',
     description: 'Réservé au RP. Suppression physique, définitive.',
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
   @ApiParam({ name: 'commentId', description: 'UUID du commentaire' })
   @ApiResponse({ status: 204, description: 'Commentaire supprimé' })
   @ApiResponse({ status: 403, description: 'Rôle insuffisant (réservé au RP)' })
-  @ApiResponse({ status: 404, description: 'Commentaire introuvable sur ce forum' })
+  @ApiResponse({ status: 404, description: 'Commentaire introuvable sur ce sujet' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
-  async deleteComment(
+  async deleteTopicComment(
     @Param('id') forumId: string,
+    @Param('topicId') topicId: string,
     @Param('commentId') commentId: string,
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<void> {
-    return this.forumsService.deleteComment(forumId, commentId, currentUser.role);
+    return this.forumsService.deleteTopicComment(forumId, topicId, commentId, currentUser.role);
   }
 
   // ─── Exclusions ────────────────────────────────────────────────────────

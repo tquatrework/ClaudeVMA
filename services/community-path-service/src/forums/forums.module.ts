@@ -4,7 +4,9 @@ import { JwtModule } from '@nestjs/jwt';
 import { ForumsController } from './forums.controller';
 import { ForumsService } from './forums.service';
 import { ForumImageStorageService } from './services/forum-image-storage.service';
+import { ForumTopicsBootstrapService } from './services/forum-topics-bootstrap.service';
 import { Forum } from './entities/forum.entity';
+import { ForumTopic } from './entities/forum-topic.entity';
 import { ForumComment } from './entities/forum-comment.entity';
 import { ForumExclusion } from './entities/forum-exclusion.entity';
 import { ForumCharterSetting } from './entities/forum-charter-setting.entity';
@@ -14,6 +16,7 @@ import { ForumCharterAcceptance } from './entities/forum-charter-acceptance.enti
   imports: [
     TypeOrmModule.forFeature([
       Forum,
+      ForumTopic,
       ForumComment,
       ForumExclusion,
       ForumCharterSetting,
@@ -22,7 +25,7 @@ import { ForumCharterAcceptance } from './entities/forum-charter-acceptance.enti
     JwtModule.register({}),
   ],
   controllers: [ForumsController],
-  providers: [ForumsService, ForumImageStorageService],
+  providers: [ForumsService, ForumImageStorageService, ForumTopicsBootstrapService],
   exports: [ForumsService],
 })
 export class ForumsModule {}

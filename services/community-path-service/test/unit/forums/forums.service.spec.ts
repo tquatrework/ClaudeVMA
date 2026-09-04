@@ -16,6 +16,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ForumsService, isRoleAllowedForForum, isForumHiddenFromRole } from '../../../src/forums/forums.service';
 import { Forum } from '../../../src/forums/entities/forum.entity';
+import { ForumTopic } from '../../../src/forums/entities/forum-topic.entity';
 import { ForumComment } from '../../../src/forums/entities/forum-comment.entity';
 import { ForumExclusion } from '../../../src/forums/entities/forum-exclusion.entity';
 import { ForumCharterSetting } from '../../../src/forums/entities/forum-charter-setting.entity';
@@ -23,12 +24,14 @@ import { ForumCharterAcceptance } from '../../../src/forums/entities/forum-chart
 import { ForumImageStorageService } from '../../../src/forums/services/forum-image-storage.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { ForumRestrictableRole } from '../../../src/common/enums/forum-restrictable-role.enum';
+import { ForumTopicStatus } from '../../../src/common/enums/forum-topic-status.enum';
 
 const RP_ID = 'rp-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID = 'ap-0000-4000-b000-bbbbbbbbbbbb';
 const ELEVE_ID = 'el-0000-4000-c000-cccccccccccc';
 const FORMATEUR_ID = 'fo-0000-4000-d000-dddddddddddd';
 const FORUM_ID = 'fr-0000-4000-0000-000000000000';
+const TOPIC_ID = 'tp-0000-4000-0000-000000000000';
 
 function buildMockRepo() {
   return {
@@ -57,10 +60,6 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     id: FORUM_ID,
     title: 'Forum Algèbre',
     description: "Discussion autour de l'algèbre",
-    level: 'seconde',
-    difficulty: 'intermédiaire',
-    theme: 'algèbre',
-    competences: null,
     tags: null,
     allowedRoles: null,
     createdById: RP_ID,
@@ -70,8 +69,30 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     isHidden: false,
     hiddenAt: null,
     hiddenByUserId: null,
-    comments: [],
+    topics: [],
     exclusions: [],
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+function buildSampleTopic(overrides: Partial<ForumTopic> = {}): ForumTopic {
+  return {
+    id: TOPIC_ID,
+    forumId: FORUM_ID,
+    forum: null as any,
+    title: 'Une question',
+    authorId: ELEVE_ID,
+    authorRole: UserRole.ELEVE,
+    status: ForumTopicStatus.PENDING_VALIDATION,
+    isDefault: false,
+    validatedByUserId: null,
+    validatedAt: null,
+    rejectedByUserId: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    comments: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -81,6 +102,7 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
 describe('ForumsService', () => {
   let forumsService: ForumsService;
   let forumRepo: ReturnType<typeof buildMockRepo>;
+  let topicRepo: ReturnType<typeof buildMockRepo>;
   let commentRepo: ReturnType<typeof buildMockRepo>;
   let exclusionRepo: ReturnType<typeof buildMockRepo>;
   let charterSettingRepo: ReturnType<typeof buildMockRepo>;
@@ -89,6 +111,7 @@ describe('ForumsService', () => {
 
   beforeEach(async () => {
     forumRepo = buildMockRepo();
+    topicRepo = buildMockRepo();
     commentRepo = buildMockRepo();
     exclusionRepo = buildMockRepo();
     charterSettingRepo = buildMockRepo();
@@ -99,6 +122,7 @@ describe('ForumsService', () => {
       providers: [
         ForumsService,
         { provide: getRepositoryToken(Forum), useValue: forumRepo },
+        { provide: getRepositoryToken(ForumTopic), useValue: topicRepo },
         { provide: getRepositoryToken(ForumComment), useValue: commentRepo },
         { provide: getRepositoryToken(ForumExclusion), useValue: exclusionRepo },
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
@@ -110,7 +134,8 @@ describe('ForumsService', () => {
     forumsService = moduleRef.get<ForumsService>(ForumsService);
 
     // Par défaut, la charte est acceptée pour ne pas polluer les tests
-    // d'addComment() qui ne portent pas spécifiquement sur ce contrôle.
+    // de création de sujet/commentaire qui ne portent pas spécifiquement
+    // sur ce contrôle.
     charterAcceptanceRepo.findOne.mockResolvedValue({ id: 'acc-1', userId: ELEVE_ID, acceptedAt: new Date() });
   });
 
@@ -122,6 +147,14 @@ describe('ForumsService', () => {
 
   describe('createForum()', () => {
     const validDto = { title: 'Forum Algèbre', description: 'Discussion algèbre' };
+
+    beforeEach(() => {
+      // createForum() crée aussi le sujet système "Sujet général" — mocks
+      // par défaut pour ne pas polluer chaque test avec ce détail.
+      const defaultTopic = { id: 'topic-default', forumId: FORUM_ID, title: 'Sujet général' };
+      topicRepo.create.mockReturnValue(defaultTopic);
+      topicRepo.save.mockResolvedValue(defaultTopic);
+    });
 
     it('le RP peut créer un forum, visible immédiatement (allowedRoles null)', async () => {
       const savedForum = buildSampleForum();
@@ -178,6 +211,24 @@ describe('ForumsService', () => {
       await forumsService.createForum({ ...validDto, allowedRoles: [] }, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
 
       expect(forumRepo.create).toHaveBeenCalledWith(expect.objectContaining({ allowedRoles: null }));
+    });
+
+    it('crée aussi le sujet système "Sujet général", déjà validé', async () => {
+      const savedForum = buildSampleForum();
+      forumRepo.create.mockReturnValue(savedForum);
+      forumRepo.save.mockResolvedValue(savedForum);
+
+      await forumsService.createForum(validDto, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(topicRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forumId: FORUM_ID,
+          title: 'Sujet général',
+          isDefault: true,
+          status: ForumTopicStatus.VALIDATED,
+        }),
+      );
+      expect(topicRepo.save).toHaveBeenCalled();
     });
   });
 
@@ -416,122 +467,104 @@ describe('ForumsService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // getForumComments()
+  // createTopic()
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('getForumComments()', () => {
-    it('renvoie une page de commentaires triés du plus ancien au plus récent', async () => {
-      const forum = buildSampleForum({ allowedRoles: null });
-      forumRepo.findOne.mockResolvedValue(forum);
-      const comments = [
-        { id: 'cmt-1', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date('2026-01-01') },
-        { id: 'cmt-2', forumId: FORUM_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'b', createdAt: new Date('2026-01-02') },
-      ];
-      commentRepo.findAndCount = jest.fn().mockResolvedValue([comments, 2]);
-
-      const result = await forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 });
-
-      expect(commentRepo.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { forumId: FORUM_ID },
-          order: { createdAt: 'ASC' },
-          skip: 0,
-          take: 20,
-        }),
-      );
-      expect(result).toEqual({ data: comments, page: 1, limit: 20, total: 2, totalPages: 1 });
-    });
-
-    it('applique skip/take selon la page demandée', async () => {
-      const forum = buildSampleForum({ allowedRoles: null });
-      forumRepo.findOne.mockResolvedValue(forum);
-      commentRepo.findAndCount = jest.fn().mockResolvedValue([[], 45]);
-
-      const result = await forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 3, limit: 20 });
-
-      expect(commentRepo.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 40, take: 20 }),
-      );
-      expect(result.totalPages).toBe(3);
-    });
-
-    it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {
-      forumRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
-      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] });
-      forumRepo.findOne.mockResolvedValue(forum);
-
-      await expect(
-        forumsService.getForumComments(FORUM_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // addComment()
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('addComment()', () => {
-    it('un élève peut commenter un forum ouvert à tous (charte acceptée)', async () => {
+  describe('createTopic()', () => {
+    it("un élève peut créer un sujet dans un forum ouvert à tous (charte acceptée), pending_validation", async () => {
       const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
       forumRepo.findOne.mockResolvedValue(forum);
-      const savedComment = { id: 'cmt-001', forumId: FORUM_ID, authorId: ELEVE_ID, content: 'Bonne question' };
+      const savedTopic = buildSampleTopic({ authorId: ELEVE_ID, authorRole: UserRole.ELEVE });
+      topicRepo.create.mockReturnValue(savedTopic);
+      topicRepo.save.mockResolvedValue(savedTopic);
+      const savedComment = { id: 'cmt-001', topicId: TOPIC_ID, authorId: ELEVE_ID, content: 'Bonne question' };
       commentRepo.create.mockReturnValue(savedComment);
       commentRepo.save.mockResolvedValue(savedComment);
 
-      const result = await forumsService.addComment(FORUM_ID, { content: 'Bonne question' }, ELEVE_ID, UserRole.ELEVE);
+      const result = await forumsService.createTopic(
+        FORUM_ID,
+        { title: 'Une question', content: 'Bonne question' },
+        ELEVE_ID,
+        UserRole.ELEVE,
+      );
 
+      expect(topicRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ForumTopicStatus.PENDING_VALIDATION, isDefault: false }),
+      );
       expect(result.authorId).toBe(ELEVE_ID);
+      expect(result.firstComment).toEqual(savedComment);
     });
 
-    it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {
-      forumRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
-      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR], exclusions: [] });
-      forumRepo.findOne.mockResolvedValue(forum);
-
-      await expect(
-        forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it("lève NotFoundException (masquage) si le forum est caché et l'appelant n'est pas RP", async () => {
-      const forum = buildSampleForum({ isHidden: true, exclusions: [] });
-      forumRepo.findOne.mockResolvedValue(forum);
-
-      await expect(
-        forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it("le RP peut commenter un forum restreint aux formateurs (bypass admin)", async () => {
-      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR], exclusions: [] });
+    it('un RP créant un sujet part aussi en pending_validation — aucune auto-validation de rôle (corrigé le 2026-09-04)', async () => {
+      const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
       forumRepo.findOne.mockResolvedValue(forum);
       charterAcceptanceRepo.findOne.mockResolvedValue({ id: 'acc-rp', userId: RP_ID, acceptedAt: new Date() });
-      const savedComment = { id: 'cmt-003', forumId: FORUM_ID, authorId: RP_ID, content: 'Réponse RP' };
-      commentRepo.create.mockReturnValue(savedComment);
-      commentRepo.save.mockResolvedValue(savedComment);
+      const savedTopic = buildSampleTopic({
+        authorId: RP_ID,
+        authorRole: UserRole.RESPONSABLE_PEDAGOGIQUE,
+        status: ForumTopicStatus.PENDING_VALIDATION,
+      });
+      topicRepo.create.mockReturnValue(savedTopic);
+      topicRepo.save.mockResolvedValue(savedTopic);
+      commentRepo.create.mockReturnValue({ id: 'cmt-002' });
+      commentRepo.save.mockResolvedValue({ id: 'cmt-002' });
 
-      const result = await forumsService.addComment(
+      await forumsService.createTopic(
         FORUM_ID,
-        { content: 'Réponse RP' },
+        { title: 'Annonce', content: 'Bienvenue' },
         RP_ID,
         UserRole.RESPONSABLE_PEDAGOGIQUE,
       );
 
-      expect(result.authorId).toBe(RP_ID);
+      expect(topicRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: ForumTopicStatus.PENDING_VALIDATION,
+          validatedByUserId: null,
+          validatedAt: null,
+        }),
+      );
+    });
+
+    it('un AP créant un sujet part aussi en pending_validation — aucune auto-validation de rôle (corrigé le 2026-09-04)', async () => {
+      const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+      charterAcceptanceRepo.findOne.mockResolvedValue({ id: 'acc-ap', userId: AP_ID, acceptedAt: new Date() });
+      topicRepo.create.mockReturnValue(
+        buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
+      topicRepo.save.mockResolvedValue(
+        buildSampleTopic({ authorId: AP_ID, status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
+      commentRepo.create.mockReturnValue({ id: 'cmt-003' });
+      commentRepo.save.mockResolvedValue({ id: 'cmt-003' });
+
+      await forumsService.createTopic(
+        FORUM_ID,
+        { title: 'Annonce AP', content: 'Bienvenue' },
+        AP_ID,
+        UserRole.ANIMATEUR_PEDAGOGIQUE,
+      );
+
+      expect(topicRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ForumTopicStatus.PENDING_VALIDATION }),
+      );
+    });
+
+    it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.createTopic(FORUM_ID, { title: 'T', content: 'C' }, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
+      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR], exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(
+        forumsService.createTopic(FORUM_ID, { title: 'T', content: 'C' }, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it("lève ForbiddenException si l'utilisateur est exclu du forum", async () => {
@@ -544,7 +577,7 @@ describe('ForumsService', () => {
       forumRepo.findOne.mockResolvedValue(forum);
 
       await expect(
-        forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+        forumsService.createTopic(FORUM_ID, { title: 'T', content: 'C' }, ELEVE_ID, UserRole.ELEVE),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -554,43 +587,310 @@ describe('ForumsService', () => {
       charterAcceptanceRepo.findOne.mockResolvedValue(null);
 
       try {
-        await forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE);
+        await forumsService.createTopic(FORUM_ID, { title: 'T', content: 'C' }, ELEVE_ID, UserRole.ELEVE);
         fail('expected ForbiddenException');
       } catch (error: any) {
         expect(error).toBeInstanceOf(ForbiddenException);
-        expect(error.getResponse()).toEqual(
-          expect.objectContaining({ code: 'CHARTER_NOT_ACCEPTED' }),
-        );
+        expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'CHARTER_NOT_ACCEPTED' }));
       }
     });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // deleteComment()
+  // findTopics()
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('deleteComment()', () => {
+  describe('findTopics()', () => {
+    it('le RP voit tous les sujets sans filtre de statut (bypass admin)', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.createQueryBuilder.mockReturnValue({
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[buildSampleTopic()], 1]),
+      });
+
+      const result = await forumsService.findTopics(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE, { page: 1, limit: 20 });
+
+      expect(result.total).toBe(1);
+    });
+
+    it("un élève ne voit que les sujets validés et les siens propres", async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      const andWhere = jest.fn().mockReturnThis();
+      topicRepo.createQueryBuilder.mockReturnValue({
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        andWhere,
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      });
+
+      await forumsService.findTopics(FORUM_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+
+      expect(andWhere).toHaveBeenCalled();
+    });
+
+    it("lève NotFoundException (masquage) si le forum n'existe pas", async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.findTopics(FORUM_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getTopic()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getTopic()', () => {
+    it('renvoie un sujet validé à tout appelant ayant accès au forum', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+
+      const result = await forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE);
+
+      expect(result.id).toBe(TOPIC_ID);
+    });
+
+    it("lève NotFoundException (masquage) pour un sujet pending_validation d'un tiers", async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+
+      await expect(
+        forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('renvoie un sujet pending_validation à son auteur', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION, authorId: ELEVE_ID }),
+      );
+
+      const result = await forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE);
+
+      expect(result.id).toBe(TOPIC_ID);
+    });
+
+    it('le RP voit un sujet pending_validation même sans en être l\'auteur (bypass admin)', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION, authorId: ELEVE_ID }),
+      );
+
+      const result = await forumsService.getTopic(FORUM_ID, TOPIC_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.id).toBe(TOPIC_ID);
+    });
+
+    it("lève NotFoundException si le sujet n'existe pas sur ce forum", async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.getTopic(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // decideTopic()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('decideTopic()', () => {
+    it('le RP peut valider un sujet en attente', async () => {
+      const topic = buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION });
+      topicRepo.findOne.mockResolvedValue(topic);
+      topicRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.decideTopic(
+        FORUM_ID,
+        TOPIC_ID,
+        { decision: 'validated' },
+        RP_ID,
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+      );
+
+      expect(result.status).toBe(ForumTopicStatus.VALIDATED);
+      expect(result.validatedByUserId).toBe(RP_ID);
+    });
+
+    it('le RP peut refuser un sujet avec un motif', async () => {
+      const topic = buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION });
+      topicRepo.findOne.mockResolvedValue(topic);
+      topicRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.decideTopic(
+        FORUM_ID,
+        TOPIC_ID,
+        { decision: 'rejected', reason: 'Hors sujet' },
+        RP_ID,
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+      );
+
+      expect(result.status).toBe(ForumTopicStatus.REJECTED);
+      expect(result.rejectionReason).toBe('Hors sujet');
+    });
+
+    it("lève ForbiddenException si l'appelant n'est pas RP (pas même AP)", async () => {
+      await expect(
+        forumsService.decideTopic(FORUM_ID, TOPIC_ID, { decision: 'validated' }, AP_ID, UserRole.ANIMATEUR_PEDAGOGIQUE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("lève NotFoundException si le sujet est introuvable", async () => {
+      topicRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.decideTopic(FORUM_ID, TOPIC_ID, { decision: 'validated' }, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lève BadRequestException sur le sujet système "Sujet général" (isDefault)', async () => {
+      const topic = buildSampleTopic({ isDefault: true, status: ForumTopicStatus.VALIDATED });
+      topicRepo.findOne.mockResolvedValue(topic);
+
+      await expect(
+        forumsService.decideTopic(FORUM_ID, TOPIC_ID, { decision: 'validated' }, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // addTopicComment()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('addTopicComment()', () => {
+    it('un élève peut commenter un sujet validé (charte acceptée)', async () => {
+      const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+      topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+      const savedComment = { id: 'cmt-001', topicId: TOPIC_ID, authorId: ELEVE_ID, content: 'Bonne question' };
+      commentRepo.create.mockReturnValue(savedComment);
+      commentRepo.save.mockResolvedValue(savedComment);
+
+      const result = await forumsService.addTopicComment(
+        FORUM_ID,
+        TOPIC_ID,
+        { content: 'Bonne question' },
+        ELEVE_ID,
+        UserRole.ELEVE,
+      );
+
+      expect(result.authorId).toBe(ELEVE_ID);
+    });
+
+    it("lève NotFoundException si le sujet n'existe pas ou n'est pas visible (pending_validation d'un tiers)", async () => {
+      const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+
+      await expect(
+        forumsService.addTopicComment(FORUM_ID, TOPIC_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève ForbiddenException si l'utilisateur est exclu du forum", async () => {
+      const forum = buildSampleForum({
+        allowedRoles: null,
+        exclusions: [
+          { id: 'exc-001', forumId: FORUM_ID, excludedUserId: ELEVE_ID, excludedByUserId: RP_ID, reason: null, createdAt: new Date(), forum: null },
+        ],
+      });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(
+        forumsService.addTopicComment(FORUM_ID, TOPIC_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("lève ForbiddenException avec code CHARTER_NOT_ACCEPTED si la charte n'a jamais été acceptée", async () => {
+      const forum = buildSampleForum({ allowedRoles: null, exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+      topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+      charterAcceptanceRepo.findOne.mockResolvedValue(null);
+
+      try {
+        await forumsService.addTopicComment(FORUM_ID, TOPIC_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE);
+        fail('expected ForbiddenException');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(ForbiddenException);
+        expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'CHARTER_NOT_ACCEPTED' }));
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getTopicComments()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getTopicComments()', () => {
+    it('renvoie une page de commentaires triés du plus ancien au plus récent', async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(buildSampleTopic({ status: ForumTopicStatus.VALIDATED }));
+      const comments = [
+        { id: 'cmt-1', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'a', createdAt: new Date('2026-01-01') },
+        { id: 'cmt-2', topicId: TOPIC_ID, authorId: ELEVE_ID, authorRole: UserRole.ELEVE, content: 'b', createdAt: new Date('2026-01-02') },
+      ];
+      commentRepo.findAndCount = jest.fn().mockResolvedValue([comments, 2]);
+
+      const result = await forumsService.getTopicComments(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 });
+
+      expect(commentRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { topicId: TOPIC_ID }, order: { createdAt: 'ASC' }, skip: 0, take: 20 }),
+      );
+      expect(result).toEqual({ data: comments, page: 1, limit: 20, total: 2, totalPages: 1 });
+    });
+
+    it("lève NotFoundException (masquage) si le sujet n'est pas visible à l'appelant", async () => {
+      forumRepo.findOne.mockResolvedValue(buildSampleForum({ allowedRoles: null }));
+      topicRepo.findOne.mockResolvedValue(
+        buildSampleTopic({ status: ForumTopicStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+
+      await expect(
+        forumsService.getTopicComments(FORUM_ID, TOPIC_ID, ELEVE_ID, UserRole.ELEVE, { page: 1, limit: 20 }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // deleteTopicComment()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('deleteTopicComment()', () => {
     it('le RP peut supprimer un commentaire', async () => {
-      const comment = { id: 'cmt-001', forumId: FORUM_ID, authorId: ELEVE_ID, content: 'x' };
+      const comment = { id: 'cmt-001', topicId: TOPIC_ID, authorId: ELEVE_ID, content: 'x' };
       commentRepo.findOne.mockResolvedValue(comment);
       commentRepo.remove.mockResolvedValue(comment);
 
-      await forumsService.deleteComment(FORUM_ID, 'cmt-001', UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await forumsService.deleteTopicComment(FORUM_ID, TOPIC_ID, 'cmt-001', UserRole.RESPONSABLE_PEDAGOGIQUE);
 
       expect(commentRepo.remove).toHaveBeenCalledWith(comment);
     });
 
     it("lève ForbiddenException si l'appelant n'est pas RP (pas même AP)", async () => {
       await expect(
-        forumsService.deleteComment(FORUM_ID, 'cmt-001', UserRole.ANIMATEUR_PEDAGOGIQUE),
+        forumsService.deleteTopicComment(FORUM_ID, TOPIC_ID, 'cmt-001', UserRole.ANIMATEUR_PEDAGOGIQUE),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('lève NotFoundException si le commentaire est introuvable sur ce forum', async () => {
+    it('lève NotFoundException si le commentaire est introuvable sur ce sujet', async () => {
       commentRepo.findOne.mockResolvedValue(null);
 
       await expect(
-        forumsService.deleteComment(FORUM_ID, 'cmt-inconnu', UserRole.RESPONSABLE_PEDAGOGIQUE),
+        forumsService.deleteTopicComment(FORUM_ID, TOPIC_ID, 'cmt-inconnu', UserRole.RESPONSABLE_PEDAGOGIQUE),
       ).rejects.toThrow(NotFoundException);
     });
   });

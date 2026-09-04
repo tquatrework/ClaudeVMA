@@ -760,11 +760,25 @@ non encore verifies non plus a ce jour), un aller-retour reel a ete effectue dir
    visiomath:events + - COUNT 30`) : les trois evenements portent exactement
    `{requestId, requesterId, targetId}` — aucun champ supplementaire, notamment aucune information
    sur la penalite de refus (cooldown, compteur de refus, blocage definitif).
-5. Constate au passage : `ContactRequestCreated` publie deux fois avec le meme `eventId` (meme
-   republication non transactionnelle deja documentee pour `teacher-request-service`) — sans
-   consequence, absorbee par la deduplication existante.
+5. **Bug reel constate cote `communication-service`, distinct de ce chantier et hors perimetre pour
+   le corriger ici** : les trois evenements du premier aller-retour de test (2026-09-04, ~23h29)
+   ont continue a etre republies avec le **meme `eventId`** toutes les 5 a 15 secondes, **sans
+   jamais s'arreter**, observe sur plus de 8 minutes consecutives (`XREVRANGE` repete) — bien
+   au-dela de la republication ponctuelle deja documentee pour `teacher-request-service`
+   (« un crash entre le `XADD` et l'`UPDATE` de `published_at` republie une fois au redemarrage »).
+   Ici, rien ne redemarre : `EventPublisherService` de `communication-service` semble ne jamais
+   reussir a marquer `published_at`, republiant donc en boucle indefiniment a chaque passage de son
+   balayeur (toutes les 2s selon sa propre documentation). Le stream `visiomath:events` est passe de
+   260 a 392 entrees en quelques minutes du seul fait de cette boucle, plus les evenements reels de
+   ce test. **Sans consequence pour ce service** — la deduplication par `eventId`
+   (`processed_events`) absorbe chaque redelivrance sans jamais recreer de notification, verifie
+   explicitement (voir "Verifie contre la pile reelle" ci-dessous : `studentB` ne recoit **qu'une**
+   notification `contact_request_accepted` et **qu'une** `contact_request_declined` malgre les
+   redelivrances repetees) — mais **croissance non bornee du stream partage par tous les
+   consommateurs**, a signaler explicitement a `communication-service` plutot qu'a corriger ici (pas
+   mon service).
 Comptes et lignes de test laisses en base (meme pratique que les sessions precedentes de ce
-service) ; aucune donnee de production reelle affectee.
+service) ; aucune donnee de production reelle affectee au-dela des comptes de test crees.
 
 ### Modification appliquee
 
@@ -806,6 +820,29 @@ services/dashboard-notification-service/src/
   n'y indique un cooldown ou un blocage definitif. Rien n'est fabrique cote notification ; si ce
   detail devient necessaire plus tard, `communication-service` devra l'ajouter au payload publie.
 
+### Verifie contre la pile reelle (2026-09-04)
+
+Image reconstruite depuis le worktree de cette session et redeployee sur le conteneur reel
+(`docker build` + `docker compose -p claudevma up -d --no-build dashboard-notification-service`) —
+pas seulement des tests unitaires. Deuxieme aller-retour de bout en bout, avec des comptes de test
+frais pour eviter les entrees deja marquees `processed_events` par l'ancien code (qui traitait ces
+trois types comme "eventName non reconnu" et les acquittait sans notification) :
+1. Nouveau compte eleve + reutilisation des deux comptes formateurs du premier aller-retour.
+2. `POST /contacts/requests` (eleve -> formateur A), acceptee par le formateur A.
+3. `POST /contacts/requests` (eleve -> formateur B), refusee par le formateur B.
+4. `GET /notifications` du **formateur A** → une notification `contact_request_received`,
+   `requesterName`/`targetName` resolus, jamais d'UUID visible.
+5. `GET /notifications` de **l'eleve demandeur** → exactement deux notifications,
+   `contact_request_accepted` et `contact_request_declined`, chacune avec les deux noms resolus —
+   confirme que le destinataire est bien le demandeur original dans les deux cas, jamais le
+   formateur qui a decide.
+6. Malgre la republication en boucle du meme `eventId` observee au point 5 ci-dessus (dizaines de
+   redelivrances sur plusieurs minutes), l'eleve ne recoit **jamais** de doublon : exactement une
+   ligne par type, confirmant que la deduplication par `eventId` fonctionne correctement en
+   conditions reelles face a un flux qui republie bien plus que prevu par la doc existante.
+Notifications et comptes de test laisses en base (meme pratique que les sessions precedentes de ce
+service).
+
 ### Tests
 
 `event-processor.service.spec.ts` : 2 nouveaux describe (4 nouveaux cas — `ContactRequestCreated`
@@ -822,6 +859,9 @@ construit ici, hors perimetre de cette tache.
   charge de `front-developper` une fois ce contrat merge.
 - Detail de la penalite de refus sur `ContactRequestDeclined` (voir ci-dessus) — a reprendre si
   `communication-service` enrichit un jour ce payload.
-- Republication non transactionnelle de `ContactRequestCreated` observee sur le flux reel (meme
-  eventId, deux entrees) — deja absorbee par la deduplication existante de ce service, signalee ici
-  pour memoire seulement, pas un defaut de ce service.
+- **Bug reel a signaler a `communication-service`, non corrige ici** : republication indefinie
+  (pas seulement une fois) du meme `eventId` pour les evenements Contacts, `EventPublisherService`
+  semblant ne jamais reussir a marquer `published_at` — voir le detail dans la section
+  "Verifie avant modification" ci-dessus. Sans consequence pour ce service (dedup verifiee en
+  conditions reelles), mais fait grossir `visiomath:events` sans borne, un stream partage par tous
+  les consommateurs du projet.

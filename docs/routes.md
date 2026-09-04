@@ -2685,10 +2685,18 @@ notifications par rôle ».
 > demandeur original, informé de l'issue). `metadata` porte dans les trois cas
 > `{requestId, requesterId, requesterName, targetId, targetName}` — les deux noms sont toujours
 > résolus (même si un seul est affiché selon le type), pour que le front n'ait pas à distinguer une
-> forme de metadata par type. Constaté au passage : `ContactRequestCreated` a été observé publié
-> deux fois avec le même `eventId` sur le flux réel (republication non transactionnelle déjà
-> documentée pour `teacher-request-service`, 2026-08-12) — sans conséquence, la déduplication par
-> `eventId` de ce consommateur l'absorbe comme pour tout autre événement de ce flux.
+> forme de metadata par type. **Bug réel constaté côté `communication-service`, à corriger là-bas,
+> pas ici** : les trois événements du test de vérification ont continué à être republiés avec le
+> **même `eventId`** toutes les 5 à 15 secondes pendant plus de 8 minutes d'observation continue —
+> bien au-delà de la republication ponctuelle déjà documentée pour `teacher-request-service`
+> (un seul rejeu après un crash entre `XADD` et l'`UPDATE` de `published_at`). Ici rien ne semble
+> jamais marquer `published_at` avec succès côté `communication-service` pour ces trois types :
+> `visiomath:events` a grossi de 260 à 392 entrées en quelques minutes du seul fait de cette boucle.
+> **Sans conséquence pour `dashboard-notification-service`** — vérifié explicitement en conditions
+> réelles : aucune notification dupliquée malgré des dizaines de redelivrances du même `eventId`,
+> la déduplication par `eventId` de ce consommateur absorbe correctement le cas — mais **le stream
+> partagé par tous les consommateurs du projet croît sans borne** tant que ce n'est pas corrigé côté
+> `communication-service`.
 
 ---
 

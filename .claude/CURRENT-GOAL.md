@@ -29,8 +29,53 @@ identifiant/nom, composite entre les deux services) ; `dashboard-notification-se
 — l'entrée de menu « Contacts » existe déjà (fusionnée avec « Messages » le 2026-09-04), ce
 chantier construit ce qu'il y a derrière.
 
-Pas encore délégué — arbitrage tout juste figé, docs à committer/pousser avant toute
-délégation.
+**`communication-service` mergé (PR #257), déployé, vérifié en HTTP direct et en base.**
+Session interrompue une fois par une limite de session Claude Code (juste avant la réécriture de
+`ContactService`) — travail intermédiaire commité/poussé par l'orchestrateur avant la coupure,
+agent relancé, rien perdu. Livré : entités `Contact` (bidirectionnel, paire canonique,
+`active`/`broken`, non destructif) et `ContactRequest` (journal append-only, sert aussi de
+journal de refus pour le cooldown 1 mois / blocage définitif au 3e refus, unidirectionnel) ;
+`ContactRequestService` (recherche composite par identifiant exact et par nom) ;
+`RelationEventConsumerService` (consommateur Redis générique, groupe `communication-service`,
+XGROUP/XREADGROUP/XACK/XAUTOCLAIM, dédup par `eventId`) — **écrit et actif mais restera silencieux
+tant que `profile-service` ne publie pas réellement les événements de relation** (voir blocages
+ci-dessous) ; `EventPublisherService`/outbox générique (même pattern que
+`teacher-request-service`) émettant `ContactRequestCreated`/`Accepted`/`Declined` ; messagerie
+enfin conditionnée à un contact actif, vérifié à chaque envoi de message (pas seulement à la
+création de la conversation) ; ancien modèle `ContactPolicy`/`POST /internal/sync-contacts`
+(jamais appelé, 0 ligne en base) retiré. Première migration TypeORM du service. 83/83 tests e2e
+verts contre un vrai Postgres ; 3 bugs réels trouvés et corrigés par les tests eux-mêmes
+(`@HttpCode(200)` manquant sur 3 routes, démarrage bloqué si Redis indisponible, connexion Redis
+non fermée au `onModuleDestroy`).
+
+**Vérifié par l'orchestrateur après merge** (le worktree de l'agent n'avait pas accès à `.env`) :
+`docker compose up -d --build communication-service` depuis `master`, conteneur sain ; migration
+`ContactsAndMessagingRefonte1793900000000` appliquée (table `migrations` en base, `contacts`/
+`contact_requests` présentes, `contact_policies` bien supprimée) ; toutes les routes `/contacts/*`
+répondent `401` via la passerelle publique (jamais `404`) ; groupe de consommateurs Redis
+`communication-service` actif sur `visiomath:events` (`lag: 0`, aux côtés de
+`dashboard-notification-service`/`pedagogical-log-service`/`video-session-service`).
+
+**Trois blocages précis à lever avant que les contacts par défaut et la recherche par nom ne
+fonctionnent réellement** (détaillés dans `docs/routes.md` section communication-service, et
+`docs/services/communication-service.md`) :
+1. `profile-service` doit **publier réellement** `TeacherLinkedToStudent`,
+   `StudentLinkedToFinanceOwner`, `AnimatorLinkedToTeacher` (+ leurs `Unlinked`) sur
+   `visiomath:events`, pattern outbox + `XADD` déjà utilisé par `teacher-request-service` —
+   vérifié par `XRANGE` réel : ces événements n'y figurent jamais aujourd'hui, `profile-service`
+   se contente de les journaliser en interne.
+2. `profile-service` doit construire `GET /internal/profiles/search-by-name`
+   (`X-Internal-Secret`, `?q=`, `{results: [{userId, firstName, lastName, loginIdentifier}]}`,
+   composée en interne avec `identity-access-service`) — sans elle,
+   `GET /contacts/search/by-name` renvoie `ServiceUnavailableException`.
+3. `identity-access-service` doit confirmer le contrat de sortie exact de
+   `GET /internal/accounts/by-login-identifier` (la route existe déjà d'après `docs/routes.md`,
+   mais son contrat n'y est pas détaillé) — `communication-service` a supposé
+   `{userId, loginIdentifier, role}` par analogie, non vérifié empiriquement.
+
+Délégué le 2026-09-04, en parallèle : `profile-service` (points 1 et 2) et
+`identity-access-service` (point 3). `dashboard-notification-service` et `front-developper`
+restent à déléguer ensuite.
 
 ---
 

@@ -62,6 +62,21 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
     ],
   },
   {
+    // Ajouté au menu du haut le 2026-09-04 (demande explicite utilisateur),
+    // positionné entre « Contacts » et « Stats / Archives » (repositionné le
+    // même jour après un premier essai en dernière position, jugé mal placé
+    // par l'utilisateur) — visible à TOUS les rôles connectés, pas
+    // `allowedRoles` du tout, même convention que « Accueil » ci-dessus.
+    // Auparavant réservé au rail gauche du RP (groupe « Contenu »,
+    // reconstruction du 2026-09-02) et, séparément, au rail Communauté de
+    // l'élève et de l'AP. community-path-service est réellement déployé
+    // (`GET /api/v1/forums` répond 401 sans jeton, pas 404 — vérifié le
+    // 2026-09-04) : ce n'est pas un lien mort.
+    id: 'forums',
+    label: 'Forums',
+    path: '/community/forums',
+  },
+  {
     id: 'demandes',
     label: 'Demandes',
     path: '/teacher-requests',
@@ -83,19 +98,6 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
       'administrateur_financier',
       'technicien_informatique',
     ],
-  },
-  {
-    // Ajouté au menu du haut le 2026-09-04 (demande explicite utilisateur),
-    // à droite du menu, visible à TOUS les rôles connectés — pas
-    // `allowedRoles` du tout, même convention que « Accueil » ci-dessus.
-    // Auparavant réservé au rail gauche du RP (groupe « Contenu »,
-    // reconstruction du 2026-09-02) et, séparément, au rail Communauté de
-    // l'élève et de l'AP. community-path-service est réellement déployé
-    // (`GET /api/v1/forums` répond 401 sans jeton, pas 404 — vérifié le
-    // 2026-09-04) : ce n'est pas un lien mort.
-    id: 'forums',
-    label: 'Forums',
-    path: '/community/forums',
   },
 ]
 

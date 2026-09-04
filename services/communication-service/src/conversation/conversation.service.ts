@@ -52,13 +52,10 @@ export class ConversationService {
     }
 
     // Single batched authorization check (avoids one query per participant — N+1).
-    const unauthorizedParticipants = await this.contactService.findUnauthorizedContacts(
-      actor.id,
-      otherParticipants,
-    );
-    if (unauthorizedParticipants.length > 0) {
+    const inactiveContacts = await this.contactService.findInactiveContacts(actor.id, otherParticipants);
+    if (inactiveContacts.length > 0) {
       throw new ForbiddenException(
-        `You are not authorized to contact user ${unauthorizedParticipants[0]}`,
+        `You do not have an active contact with user ${inactiveContacts[0]}`,
       );
     }
 
@@ -76,6 +73,12 @@ export class ConversationService {
   /**
    * Send a message in an existing conversation.
    * The sender must be a participant in the conversation.
+   * docs/architecture/contacts-messagerie.md (2026-09-04), point 8: a message can only be sent
+   * between people with an ACTIVE contact — checked at send time, not just at conversation
+   * creation, since a contact broken after the conversation was created must close messaging
+   * immediately (same "verified at the time of the action, never cached" discipline used
+   * everywhere else in this project). Incident threads (TI support channel) are exempt: they are
+   * not a peer-to-peer contact, they are gated by role/route already.
    * Atomic: the message insert and the conversation's `updatedAt` bump
    * happen under the same transaction/EntityManager.
    */
@@ -89,6 +92,16 @@ export class ConversationService {
 
     if (!conversation.participantIds.includes(actor.id)) {
       throw new ForbiddenException('You are not a participant in this conversation');
+    }
+
+    if (!conversation.isIncident) {
+      const otherParticipants = conversation.participantIds.filter((id) => id !== actor.id);
+      const inactiveContacts = await this.contactService.findInactiveContacts(actor.id, otherParticipants);
+      if (inactiveContacts.length > 0) {
+        throw new ForbiddenException(
+          `You no longer have an active contact with ${inactiveContacts[0]} — messaging is closed`,
+        );
+      }
     }
 
     return this.dataSource.transaction(async (manager) => {

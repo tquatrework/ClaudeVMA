@@ -26,6 +26,7 @@ import { ForumExclusion } from '../../../src/forums/entities/forum-exclusion.ent
 import { ForumCharterSetting } from '../../../src/forums/entities/forum-charter-setting.entity';
 import { ForumCharterAcceptance } from '../../../src/forums/entities/forum-charter-acceptance.entity';
 import { ForumImageStorageService } from '../../../src/forums/services/forum-image-storage.service';
+import { ProfileServiceClient } from '../../../src/common/clients/profile-service.client';
 import { LearningPath } from '../../../src/paths/entities/learning-path.entity';
 import { PathStep } from '../../../src/paths/entities/path-step.entity';
 import { PathEnrollment } from '../../../src/paths/entities/path-enrollment.entity';
@@ -163,6 +164,7 @@ describe('CPS-AC-001 -- Creation forums/parcours reservee aux RP et AP', () => {
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
         { provide: getRepositoryToken(ForumCharterAcceptance), useValue: charterAcceptanceRepo },
         { provide: ForumImageStorageService, useValue: { store: jest.fn(), read: jest.fn(), remove: jest.fn() } },
+        { provide: ProfileServiceClient, useValue: { resolveDisplayNames: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
 
@@ -521,6 +523,7 @@ describe('CPS-AC-004 -- Forum : controle de la restriction de role et moderation
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
         { provide: getRepositoryToken(ForumCharterAcceptance), useValue: charterAcceptanceRepo },
         { provide: ForumImageStorageService, useValue: { store: jest.fn(), read: jest.fn(), remove: jest.fn() } },
+        { provide: ProfileServiceClient, useValue: { resolveDisplayNames: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
 
@@ -661,6 +664,7 @@ describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autr
         { provide: getRepositoryToken(ForumCharterSetting), useValue: charterSettingRepo },
         { provide: getRepositoryToken(ForumCharterAcceptance), useValue: charterAcceptanceRepo },
         { provide: ForumImageStorageService, useValue: { store: jest.fn(), read: jest.fn(), remove: jest.fn() } },
+        { provide: ProfileServiceClient, useValue: { resolveDisplayNames: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
 

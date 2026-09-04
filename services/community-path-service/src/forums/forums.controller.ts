@@ -336,7 +336,9 @@ export class ForumsController {
     description:
       'Visibles : sujets validés, plus les siens propres (tous statuts), plus tout ce que voit un ' +
       'administrateur (RP/AF/TI). Le sujet système "Sujet général" apparaît toujours en premier, les ' +
-      'autres du plus récent au plus ancien. Paginé (page défaut 1, limit défaut 20, plafond 100).',
+      'autres du plus récent au plus ancien. Paginé (page défaut 1, limit défaut 20, plafond 100). ' +
+      "Chaque sujet porte `authorName: {firstName, lastName} | null`, résolu auprès de profile-service " +
+      '(jamais un UUID affiché — 2026-09-04).',
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
   @ApiQuery({ name: 'page', required: false, description: 'Page, défaut 1' })
@@ -363,7 +365,7 @@ export class ForumsController {
     description:
       "Même masquage 404 qu'un sujet non listé par GET /forums/:id/topics — ne révèle jamais " +
       "l'existence d'un sujet auquel l'appelant n'a pas accès (non validé et pas le sien, ou forum " +
-      'inaccessible).',
+      "inaccessible). Porte `authorName: {firstName, lastName} | null` (2026-09-04).",
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
   @ApiParam({ name: 'topicId', description: 'UUID du sujet' })
@@ -446,7 +448,9 @@ export class ForumsController {
     summary: "Lister les commentaires d'un sujet",
     description:
       "Ordre chronologique, du plus ancien au plus récent. Mêmes droits de lecture que le détail " +
-      'du sujet (même masquage 404). Paginé (page défaut 1, limit défaut 20, plafond 100).',
+      'du sujet (même masquage 404). Paginé (page défaut 1, limit défaut 20, plafond 100). Chaque ' +
+      "commentaire porte `authorName: {firstName, lastName} | null`, résolu auprès de profile-service " +
+      'en un seul appel groupé (jamais un UUID affiché — 2026-09-04).',
   })
   @ApiParam({ name: 'id', description: 'UUID du forum' })
   @ApiParam({ name: 'topicId', description: 'UUID du sujet' })

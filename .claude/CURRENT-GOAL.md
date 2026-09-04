@@ -7,6 +7,24 @@
 
 ## Besoin courant
 
+Texte réel de la charte de bonne conduite des forums, fourni par l'utilisateur le 2026-09-04 —
+ferme le dernier point ouvert du chantier Forums. Persisté dans `docs/doc-interne/charte
+d'utilisation des forums` (PR #242, mergée). Un premier brouillon promettait un dispositif de
+signalement inexistant ; l'utilisateur l'a retiré lui-même avant intégration (remplacé par un
+contact email). Arbitrage complet persisté dans `docs/architecture/identite-profils-acces.md`
+("Texte reel de la charte de bonne conduite").
+
+Résumé : le texte est du vrai Markdown (titres, listes, gras) — `front-developper` doit le rendre
+avec un moteur Markdown sûr (jamais d'injection HTML brute), pas afficher les caractères `#`/`*`
+tels quels. `community-path-service` écrit ce texte réel via `PATCH /forums/charter` déjà
+construite. `front-developper` construit l'écran manquant (lecture avant acceptation + édition
+réservée au RP), dernier gap connu du chantier Forums.
+
+Délégué le 2026-09-04 à `community-path-service` (écriture du texte), `front-developper` ensuite
+(rendu Markdown + écran d'édition RP).
+
+---
+
 Édition des métadonnées d'un forum par le RP, demandée le 2026-09-04, après réflexion de
 l'utilisateur suite à la livraison du masquage RP (voir plus bas). Referme le point 1 laissé
 ouvert depuis le premier lot Forums — le masquage n'en était qu'une réponse partielle. Arbitrage

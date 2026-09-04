@@ -34,6 +34,18 @@ export class EnvironmentVariables {
   @IsString()
   @MinLength(1)
   INTERNAL_SECRET: string;
+
+  @IsString()
+  @MinLength(1)
+  REDIS_URL: string;
+
+  @IsString()
+  @MinLength(1)
+  PROFILE_SERVICE_URL: string;
+
+  @IsString()
+  @MinLength(1)
+  IDENTITY_ACCESS_SERVICE_URL: string;
 }
 
 /**

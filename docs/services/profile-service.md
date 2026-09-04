@@ -3051,7 +3051,146 @@
           formateur sur la meme route -&gt; `403` ; sans jeton -&gt; `401`.
         </verification>
       </decision>
+      <decision id="C30" status="implemented" session="2026-09-04">
+        <title>Publication reelle des evenements de relation (outbox + XADD) et GET /internal/profiles/search-by-name</title>
+        <filesTouched>
+          <file path="services/profile-service/src/events/domain-event-outbox.entity.ts">
+            NOUVEAU. Entite `domain_events` : `id` (uuid), `type`, `payload` (jsonb), `occurredAt`,
+            `publishedAt` (nullable, `NULL` = non publie), `createdAt`. Index partiel
+            `idx_domain_events_unpublished` sur `created_at WHERE published_at IS NULL`.
+          </file>
+          <file path="services/profile-service/src/migrations/1794300000000-CreateDomainEventsOutbox.ts">
+            NOUVEAU. Cree la table et l'index ci-dessus. Teste directement contre un Postgres 16
+            reel (hors chaine complete de migrations, qui suppose des tables preexistantes creees
+            avant l'introduction des migrations dans ce service — voir `data-source.ts`).
+          </file>
+          <file path="services/profile-service/src/events/event-publisher.service.ts">
+            NOUVEAU. `EventPublisherService` : balaie `domain_events` toutes les 2 secondes (lot de
+            50), `XADD` sur le stream Redis partage `visiomath:events`
+            (`eventId`/`type`/`occurredAt`/`payload`), marque `publishedAt` au succes. S'arrete au
+            premier echec du cycle (Redis probablement indisponible) plutot que de continuer a
+            echouer sur le reste du lot. `REDIS_URL` absent -&gt; avertissement, aucune connexion,
+            aucun blocage du demarrage. `onModuleDestroy` ferme la connexion Redis explicitement
+            (memes deux bugs deja trouves et corriges le 2026-09-04 cote `communication-service` :
+            blocage au demarrage sur Redis indisponible, processus qui ne se termine pas faute de
+            fermeture de connexion — evites ici des la premiere ecriture).
+          </file>
+          <file path="services/profile-service/src/events/events.service.ts">
+            `publish()` devient async : ecrit desormais une ligne dans l'outbox EN PLUS du
+            `logger.log()` deja existant (conserve comme trace de dernier recours). Un echec
+            d'ecriture de l'outbox est journalise en erreur mais NE FAIT JAMAIS ECHOUER l'appelant
+            metier (`RelationsService`, `ProfilesService`, `AvatarService` continuent d'appeler
+            `publish()` sans `await`, ce qui reste valide : la promesse ne rejette jamais).
+          </file>
+          <file path="services/profile-service/src/events/events.module.ts">
+            `TypeOrmModule.forFeature([DomainEventOutbox])` + provider `EventPublisherService`
+            ajoutes. `EventsService` reste le seul export (le publieur reste un detail interne du
+            module).
+          </file>
+          <file path="services/profile-service/src/config/env.validation.ts">
+            `REDIS_URL` ajoute, `@IsOptional` (a la difference de `INTERNAL_SECRET`) : les
+            environnements de test (unitaires, e2e) n'ont pas de Redis et ne doivent pas etre
+            bloques par son absence.
+          </file>
+          <file path="services/profile-service/src/profiles/administrative-profile-lookup.service.ts">
+            Nouvelle methode `searchByName(query, limit)` : recherche `ILIKE` insensible a la casse
+            sur `firstName` OU `lastName`, tous roles confondus, triee nom/prenom/userId, plafonnee
+            par l'appelant. Distincte de `RoleDirectoryService` (reserve aux administrateurs,
+            filtre par role) : posture de securite differente, route distincte.
+          </file>
+          <file path="services/profile-service/src/internal/dto/search-by-name.query.dto.ts">
+            NOUVEAU. `q` obligatoire (a la difference de `RoleDirectoryPageQueryDto.q`, optionnel
+            la ou un filtre par role existe deja), non vide, 100 caracteres max.
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            Nouvelle methode `searchByName(q)` : appelle `AdministrativeProfileLookupService.searchByName`
+            (plafond 20, `SEARCH_BY_NAME_LIMIT`), puis resout `loginIdentifier` par
+            `IdentityAccessClient.findAccountByUserId` en parallele (`Promise.allSettled`) — un
+            profil dont la resolution echoue est absent de la reponse plutot que de faire echouer
+            toute la recherche (meme politique que `resolveDisplayNames`).
+          </file>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            Nouvelle route `GET /internal/profiles/search-by-name?q=`, `@ApiExcludeController`
+            deja herite du controleur, jamais exposee par api-gateway.
+          </file>
+          <file path="services/profile-service/package.json">
+            Ajoute la dependance `ioredis` (`^5.11.1`, resolue par `npm install` — lockfile
+            regenere dans le meme commit).
+          </file>
+          <file path="docker-compose.yml">
+            `profile-service` gagne `REDIS_URL` et `depends_on: redis (service_healthy)`, absents
+            jusqu'ici.
+          </file>
+          <file path="services/profile-service/test/unit/events/events.service.spec.ts">
+            NOUVEAU. Ecriture de l'outbox a chaque publication ; un echec d'ecriture ne fait jamais
+            echouer l'appelant.
+          </file>
+          <file path="services/profile-service/test/unit/events/event-publisher.service.spec.ts">
+            NOUVEAU. Absence de `REDIS_URL` -&gt; pas de connexion, pas de blocage ; `XADD` reussi
+            -&gt; `publishedAt` marque ; `XADD` en echec -&gt; ligne laissee non publiee, balayage
+            arrete ; `onModuleDestroy` ferme la connexion Redis si elle existe.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            +3 tests `searchByName` : composition nom+loginIdentifier, liste vide (cas normal),
+            degradation gracieuse par resultat.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/administrative-profile-lookup.service.spec.ts">
+            +3 tests `searchByName` : requete ILIKE sur les deux champs avec le plafond transmis,
+            profils renvoyes tels quels, liste vide.
+          </file>
+        </filesTouched>
+        <description>
+          Chantier declenche par `communication-service` (arbitrage du 2026-09-04,
+          `docs/architecture/contacts-messagerie.md`, points 4 et 11 ; rapport de session
+          `.claude/reports/communication-service-2026-09-04.md`) : son consommateur Redis pour la
+          derivation de contacts par defaut (AP&#8596;formateur, eleve&#8596;parent,
+          eleve&#8596;formateur) etait ecrit et pret, mais constatait par `XRANGE` reel qu'AUCUN
+          evenement de `profile-service` ne figurait jamais sur `visiomath:events` — le service ne
+          faisait qu'un `logger.log()` malgre le nom `EventsService.publish()`. Meme constat que
+          `teacher-request-service` avait deja corrige le 2026-08-14 pour lui-meme ; ce chantier
+          replique exactement le meme pattern (outbox transactionnel + `XADD` asynchrone), sans en
+          reinventer un second.
+          Gap distinct decouvert et documente (pas construit, hors perimetre) : `AnimatorTeacherLink`
+          n'a aucun mecanisme de rupture (`endedAt`, route `DELETE`) — aucun evenement
+          `AnimatorUnlinkedFromTeacher` ne peut donc jamais exister aujourd'hui. Consigne dans
+          `docs/routes.md`.
+        </description>
+        <verification>
+          730 tests unitaires verts (dont 12 nouveaux), `tsc --noEmit` propre, `npm run build`
+          propre. `npm run test:e2e` : 368/372 verts — les 4 echecs sont preexistants et sans
+          rapport avec ce chantier (PROF-BR-010 volontairement en echec en attente d'arbitrage
+          documentee plus haut dans ce fichier ; 2 echecs `avatarUrl` sur
+          `teacher-validation.e2e-spec.ts`/`teacher-directory.e2e-spec.ts`, aucun fichier touche
+          par ce chantier). Migration testee directement contre un Postgres 16 reel hors conteneur
+          (creation de table + index partiel + insertion, `gen_random_uuid()` fonctionne comme dans
+          les migrations existantes du service). Verification HTTP contre la pile deployee reelle
+          NON FAITE dans cette session — acces `.env` de deploiement indisponible depuis ce
+          worktree d'agent (meme limite deja documentee par `communication-service` le meme jour) ;
+          a faire par l'orchestrateur ou une session disposant de cet acces. PR #260.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C30" raisedOn="2026-09-04" owner="orchestrateur">
+          `AnimatorTeacherLink` (lien AP&#8596;formateur) n'a aucun mecanisme de rupture — ni
+          `endedAt`, ni route `DELETE`/`POST .../termination`, a la difference des liens
+          financeur&#8596;eleve et eleve&#8596;formateur. Consequence directe : aucun evenement
+          `AnimatorUnlinkedFromTeacher` (ou equivalent) ne peut exister aujourd'hui, et
+          `communication-service` ne recevra donc jamais ce pendant, meme si son consommateur
+          l'ignore deja par choix ("un contact ne se rompt jamais automatiquement"). Non construit
+          dans cette session : une nouvelle route de rupture serait une fonctionnalite metier a
+          part entiere, hors perimetre du chantier "publication fiable d'evenements deja emis". A
+          arbitrer si un besoin reel de rompre ce lien se presente.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C30" raisedOn="2026-09-04" owner="orchestrateur">
+          `EventPublisherService` n'ecrit pas la publication de facon transactionnelle avec
+          l'ecriture metier qui declenche l'evenement (`EventsService.publish()` est appele juste
+          apres la sauvegarde, hors transaction partagee) — meme limite deja assumee et documentee
+          pour `teacher-request-service` (2026-08-14, point 2). N'aggrave pas un risque preexistant
+          (le `logger.log()` d'avant ce chantier n'etait pas non plus transactionnel), mais reste un
+          point a revisiter si une vraie garantie transactionnelle inter-ecritures devient
+          necessaire — voir aussi le point ouvert existant sur les "Transactions cross-service non
+          appliquees" plus haut dans ce fichier, meme famille de limite.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="orchestrateur">
           `pedagogical-log-service` a besoin d'un ecran "Parametres systeme" commun (point 8 de
           l'arbitrage du 2026-08-26) qui agrege ses propres reglages de pieces jointes ET

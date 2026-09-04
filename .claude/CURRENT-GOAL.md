@@ -25,6 +25,37 @@ sur l'état actuel front des Forums) et `community-path-service` (rapport en lec
 l'état actuel backend des Forums — aucune écriture demandée pour l'instant, juste un état des
 lieux).
 
+**`community-path-service` : rapport livré, aucune écriture.** Le modèle Forum existe et
+fonctionne réellement (création/liste/commentaires/exclusion, 39/39 tests verts, pas de code mort
+à la manière de l'ancien `ExerciseCorrection`). **Gap confirmé : aucune route de
+publication/validation par le RP.** Un forum créé par un RP est publié immédiatement ; un forum
+créé par un AP reste `isPublished: false` **à vie**, sans qu'aucune action ne permette de le
+publier ensuite — alors que le mécanisme existe déjà dans ce même service pour les Parcours
+(`POST /paths/:id/validate`, enum de statut à 2 états), jamais répliqué pour les Forums. Autres
+points notés : pas de statut "refusé", pas de scoping AP `animator_of_teacher` (sans objet,
+l'action n'existe pas), aucune migration TypeORM (`synchronize` actif, même risque déjà connu
+ailleurs dans le projet), et aucune trace de `community-path-service` dans `api-gateway` par grep
+(non confirmé par un test HTTP direct, à vérifier si besoin).
+
+**`front-developper` mergé (PR #226), déployé, site vérifié `200`.** Investigation préalable :
+les écrans Forums existaient déjà et étaient fonctionnels côté front (`ForumCatalogPage`,
+`ForumDetailPage`, `ForumModerationPanel`, appelant réellement `community-path-service` —
+confirmé vivant en prod, `401` et non `404` sur `/api/v1/forums` sans jeton) ; seul le point
+d'entrée manquait au menu du haut. Livré : "Forums" ajouté au menu du haut (dernière position, à
+droite), visible à tous les rôles connectés, retiré des rails gauches où il faisait doublon
+(RP/élève/AP) ; "Messages" retiré du menu du haut et fusionné dans "Contacts" (le bouton "Écrire"
+existait déjà sur une fiche contact, rien à reconstruire) ; accès à "Contacts" élargi à TI/AF qui
+avaient déjà le droit serveur sans lien de menu. `tsc`/build propres, 0 régression (tests
+comparés avant/après par `git stash`). Mergé et déployé sur confirmation explicite de
+l'utilisateur ("Merge et déploie #226, je testerai directement en prod").
+
+**Chantier menu (Forums + fusion Contacts/Messages) clos.**
+
+**Reste ouvert, non tranché par l'utilisateur** : combler ou non le trou de validation RP des
+Forums (route `POST /forums/:id/publish` ou équivalent côté `community-path-service`, sur le
+modèle de `Paths`) — question posée le 2026-09-04, sans réponse à ce stade. Ne pas construire
+sans confirmation, ce n'était pas la demande initiale (réorganisation du menu uniquement).
+
 ---
 
 Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel "post", demandé le 2026-09-03 après

@@ -4,7 +4,8 @@
 > [identite-profils-acces.md](identite-profils-acces.md), [demande-professeur.md](demande-professeur.md),
 > [cahier-texte-notifications-carnet.md](cahier-texte-notifications-carnet.md),
 > [contenu-pedagogique-quizz-exercices-evaluations.md](contenu-pedagogique-quizz-exercices-evaluations.md),
-> [rail-rp-et-points-ouverts.md](rail-rp-et-points-ouverts.md).
+> [rail-rp-et-points-ouverts.md](rail-rp-et-points-ouverts.md),
+> [contacts-messagerie.md](contacts-messagerie.md).
 
 ## Principe de decoupage
 

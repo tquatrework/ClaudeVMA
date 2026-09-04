@@ -1,8 +1,11 @@
 /**
- * ForumModerationPanel — Phase 14 (community-path-service)
+ * ForumModerationPanel — community-path-service
  *
- * Panneau de modération d'un forum : exclusion de membres.
- * Réservé aux AP et RP.
+ * Panneau de modération d'un forum : exclusion individuelle d'un membre précis
+ * (`POST /forums/:id/exclusions`), mécanisme inchangé par la refonte du 2026-09-04 mais dont le
+ * périmètre de rôle a changé : réservé au propriétaire du forum (de fait toujours un RP depuis
+ * cette date, la création étant désormais réservée au RP) ou à tout responsable pédagogique — donc
+ * réservé au RP côté front, l'AP ayant perdu ce droit en même temps que la création.
  *
  * Routes API consommées :
  *   POST /forums/:id/exclusions
@@ -26,15 +29,13 @@ export default function ForumModerationPanel() {
   const [exclusionError, setExclusionError] = useState<string | null>(null)
   const [exclusionSuccess, setExclusionSuccess] = useState<string | null>(null)
 
-  const isAp = hasRole('animateur_pedagogique')
-  const isRp = hasRole('responsable_pedagogique')
-  const canModerate = isAp || isRp
+  const canModerate = hasRole('responsable_pedagogique')
 
   if (!canModerate) {
     return (
       <Layout>
         <p className="text-red-600 text-sm">
-          Accès réservé aux animateurs pédagogiques et responsables pédagogiques.
+          Accès réservé aux responsables pédagogiques.
         </p>
       </Layout>
     )

@@ -893,9 +893,9 @@ export default function App() {
           <Route
             path="/community/forums/:forumId/moderation"
             element={
-              <ProtectedRoute
-                allowedRoles={['animateur_pedagogique', 'responsable_pedagogique']}
-              >
+              // AP retiré le 2026-09-04 : la création de forum (et donc la propriété, qui
+              // conditionne l'exclusion) est désormais réservée au RP — voir ForumModerationPanel.
+              <ProtectedRoute allowedRoles={['responsable_pedagogique']}>
                 <ForumModerationPanel />
               </ProtectedRoute>
             }

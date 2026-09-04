@@ -20,6 +20,8 @@ interface CatalogItemCardProps {
   tags?: CatalogTag[]
   rightBadge?: React.ReactNode
   onSelect?: (id: string) => void
+  /** Vignette optionnelle affichée avant le contenu (ex. image d'illustration d'un forum). */
+  leadingVisual?: React.ReactNode
 }
 
 export function CatalogItemCard({
@@ -29,6 +31,7 @@ export function CatalogItemCard({
   tags = [],
   rightBadge,
   onSelect,
+  leadingVisual,
 }: CatalogItemCardProps) {
   return (
     <li>
@@ -38,6 +41,7 @@ export function CatalogItemCard({
         className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
       >
         <div className="flex items-start justify-between gap-3">
+          {leadingVisual}
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900 truncate">{title}</p>
             {description && (

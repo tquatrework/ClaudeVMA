@@ -254,7 +254,7 @@ renvoyée au client.
 |---|---|---|---|
 | POST | /internal/create-account | Créer un compte depuis un service interne | `X-Internal-Secret` |
 | GET | /internal/accounts | Lister les comptes (filtre `role?`) | `X-Internal-Secret` |
-| GET | /internal/accounts/by-login-identifier | Résoudre un compte par `loginIdentifier` | `X-Internal-Secret` |
+| GET | /internal/accounts/by-login-identifier?loginIdentifier= | Résoudre un compte par `loginIdentifier` (paramètre de requête nommé `loginIdentifier`) | `X-Internal-Secret` |
 | GET | /internal/accounts/by-user-id/:userId | Résoudre un compte par `userId` | `X-Internal-Secret` |
 
 Body `POST /internal/create-account` : `{email, password, role?, loginIdentifier?, consents?}` — réutilise
@@ -273,6 +273,18 @@ silencieusement jeté faute d'être déclaré ; il est désormais enregistré (a
 
 Réponse `POST /internal/create-account` : `{accountId, email, role}`
 Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier, role}` — **ne contient jamais `firstName`/`lastName`/`phone`** (identity-access-service ne les possède pas ; un consommateur qui a besoin de ces champs doit les demander à profile-service).
+
+Réponse `GET /internal/accounts/by-login-identifier?loginIdentifier=<valeur>` : **`{userId, role}`** —
+vérifié empiriquement le 2026-09-04 en HTTP direct contre la pile réelle (compte de test
+`prof.lycee`, réponse `{"userId":"38132407-...","role":"formateur"}`). **Diverge de la forme
+`{userId, loginIdentifier, role}` supposée par `communication-service`** (`IdentityAccessClient`,
+chantier Contacts, PR #257) par analogie avec `GET /internal/accounts/by-user-id/:userId` : cette
+route-ci ne renvoie **pas** `loginIdentifier` dans le corps de la réponse (l'appelant le connaît
+déjà, puisque c'est lui qui l'a fourni en paramètre de requête). Si `communication-service` lit
+`response.loginIdentifier`, cette valeur sera `undefined`. Un `loginIdentifier` inconnu renvoie
+`404` avec `{"message":"Identifiant élève introuvable","error":"Not Found","statusCode":404}` —
+le message est générique malgré son libellé ("élève"), confirmé en base sur un compte `formateur`
+et un identifiant inexistant, valable pour tout rôle. Absence de `X-Internal-Secret` : `401`.
 
 ### Appel sortant vers profile-service (écriture primaire, pas une synchronisation)
 
@@ -2064,8 +2076,10 @@ Retour recherche par nom : `{results: [{userId, firstName, lastName, loginIdenti
 - `404` (jamais `403`) quand l'appelant n'est pas partie au contact/à la demande visée — même
   discipline de masquage que partout ailleurs dans ce projet.
 
-**Blocages côté `profile-service` — LEVÉS le 2026-09-04** (session `profile-service` du même jour,
-voir `docs/services/profile-service.md` et `.claude/reports/profile-service-2026-09-04.md`) :
+**Blocages côté `profile-service`/`identity-access-service` — TOUS LEVÉS le 2026-09-04** (sessions
+du même jour, voir `docs/services/profile-service.md`,
+`.claude/reports/profile-service-2026-09-04.md` et
+`.claude/reports/identity-access-service-2026-09-04.md`) :
 1. **Publication réelle résolue.** `profile-service` réplique désormais le pattern outbox + `XADD`
    (table `domain_events`, balayeur `EventPublisherService`, toutes les 2 secondes) déjà utilisé
    par `teacher-request-service` — voir « Événements publiés » plus haut dans ce fichier pour le
@@ -2085,10 +2099,16 @@ voir `docs/services/profile-service.md` et `.claude/reports/profile-service-2026
    loginIdentifier}]}` — voir la ligne dédiée dans le tableau `/internal/*` de la section
    `profile-service` ci-dessus pour le détail complet (plafond, dégradation par résultat, absence de
    restriction de rôle).
-3. Le format exact de `GET /internal/accounts/by-user-id/:userId` (identity-access-service) reste
-   supposé par analogie côté `profile-service` — c'est le contrat déjà consommé par
-   `IdentityAccessClient.findAccountByUserId`, mais son exactitude empirique reste à la charge
-   d'`identity-access-service` ou d'une vérification HTTP directe ; non revérifié dans ce chantier.
+3. **Contrat de `GET /internal/accounts/by-login-identifier` désormais vérifié empiriquement le
+   2026-09-04** (compte de test réel, session `identity-access-service`) — **et il diverge de ce que
+   `communication-service` avait supposé.** Réponse réelle : `{userId, role}`, **sans**
+   `loginIdentifier` (contrairement à l'hypothèse `{userId, loginIdentifier, role}` par analogie
+   avec `GET /internal/accounts/by-user-id/:userId`). `404` si l'identifiant est inconnu. Paramètre
+   de requête confirmé : `loginIdentifier` (inchangé). **Action encore requise côté
+   `communication-service`** : si `IdentityAccessClient` lit `response.loginIdentifier` pour
+   construire son résultat de résolution, cette valeur est `undefined` — le client doit soit
+   réutiliser l'identifiant qu'il a lui-même passé en paramètre (déjà connu de l'appelant), soit
+   ignorer ce champ. Pas encore corrigé côté `communication-service` à la date de cette fusion.
 
 ### Conversations
 

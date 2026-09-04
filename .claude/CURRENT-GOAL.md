@@ -7,6 +7,27 @@
 
 ## Besoin courant
 
+Développement réel des Forums, demandé le 2026-09-04 (suite directe du chantier menu ci-dessous,
+qui avait révélé des forums vides en prod). Spécification complète donnée par l'utilisateur.
+Arbitrage complet persisté dans `docs/architecture/identite-profils-acces.md` ("Developpement reel
+des Forums"), qui **révise** le bullet historique "Forums AP" du même fichier.
+
+Résumé : seul le RP crée un forum (l'AP perd ce droit — ce qui résout par construction le trou de
+validation RP repéré le 2026-09-04, voir la clôture ci-dessous : plus de flux AP à valider) ; ouvert
+à tous par défaut, restrictible par le RP à des catégories de rôle (élèves/parents/profs/AP) ;
+métadonnées : titre, description, tags (existants) + nouvelle image d'illustration (même discipline
+que partout ailleurs — volume dédié, octets réels, réencodage, SVG refusé, plafonds exposés) ;
+charte de bonne conduite à accepter avant de **participer** (pas avant de lire) — hypothèse retenue :
+charte unique et globale, acceptée une fois par utilisateur, texte pas encore fourni par
+l'utilisateur (ne pas bloquer dessus, prévoir un champ modifiable) ; aucune modération a priori,
+mais le RP peut supprimer un post a posteriori (nouvelle route, réservée au RP) ; `ForumExclusion`
+existant conservé tel quel, complémentaire à la restriction par rôle.
+
+Séquencement : `community-path-service` d'abord (contrat), `front-developper` ensuite une fois le
+contrat stabilisé.
+
+---
+
 Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :
 1. Les Forums, jusqu'ici prévus dans le rail gauche RP (groupe "Contenu", jamais confirmés
    construits — point ouvert du 2026-09-02), doivent finalement être visibles **pour tous les
@@ -49,12 +70,15 @@ avaient déjà le droit serveur sans lien de menu. `tsc`/build propres, 0 régre
 comparés avant/après par `git stash`). Mergé et déployé sur confirmation explicite de
 l'utilisateur ("Merge et déploie #226, je testerai directement en prod").
 
-**Chantier menu (Forums + fusion Contacts/Messages) clos.**
+**Repositionnement demandé le même jour après test utilisateur** : Forums doit être entre Contacts
+et Stats/Archives dans le menu du haut, pas en dernière position. Corrigé (PR #228), mergé, déployé,
+site vérifié `200`.
 
-**Reste ouvert, non tranché par l'utilisateur** : combler ou non le trou de validation RP des
-Forums (route `POST /forums/:id/publish` ou équivalent côté `community-path-service`, sur le
-modèle de `Paths`) — question posée le 2026-09-04, sans réponse à ce stade. Ne pas construire
-sans confirmation, ce n'était pas la demande initiale (réorganisation du menu uniquement).
+**Chantier menu (Forums + fusion Contacts/Messages + repositionnement) clos.**
+
+**Ancien point ouvert résolu par la nouvelle spécification ci-dessus** : la question "combler ou
+non le trou de validation RP des Forums" ne se pose plus — la nouvelle spec retire à l'AP le droit
+de créer un forum, donc il n'y a plus de flux de création AP à valider.
 
 ---
 

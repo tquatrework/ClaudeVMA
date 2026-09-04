@@ -265,3 +265,71 @@
      sur une demande qu'il avait legitimement creee avant la rupture. Precision apportee le
      2026-08-12, en consequence du releve sur `teacher-request-service`.
 
+- Developpement reel des Forums (`community-path-service`). Arbitrage rendu le 2026-09-04, sur
+  specification complete donnee par l'utilisateur, apres constat qu'un premier modele existait deja
+  (entites `Forum`/`ForumComment`/`ForumExclusion`, 4 routes fonctionnelles et testees — voir rapport
+  d'etat des lieux du meme jour) mais restait vide en usage reel. **Cette entree revise et remplace le
+  bullet "Forums AP" ci-dessus** (2026-08-xx, section initiale de ce fichier) : le texte ancien n'est
+  pas edite retroactivement (regle du projet), mais ne fait plus foi sur le point de creation.
+  1. **Seul le RP cree un forum — l'AP perd ce droit.** Revision explicite de l'ancien arbitrage
+     ("un AP peut creer et gerer son forum, valide par un RP"). Consequence directe et bienvenue :
+     le trou trouve dans l'etat des lieux du 2026-09-04 (un forum cree par un AP restait
+     `isPublished: false` a vie, faute de route de publication) **disparait par construction** — il
+     n'y a plus de flux de creation AP a valider. Aucun mecanisme de publication/validation a
+     construire pour ce chantier : un forum RP est visible des sa creation.
+  2. **Ouvert a tous par defaut, restrictible par categorie de role.** Un forum est visible et
+     accessible en participation a tout compte connecte par defaut. Le RP peut le restreindre a une
+     liste de roles (elle, parent, prof, AP — la liste exacte, notamment si elle inclut ou non les
+     roles administratifs TI/AF, est laissee a l'appreciation de `community-path-service`, qui doit
+     de toute facon garder le RP administrateur avec acces illimite a tout forum quel que soit son
+     reglage, meme principe que "les administrateurs voient tout" pose ailleurs dans ce projet).
+     Remplace l'ancien enum `ForumPublic` (`etudiant`/`mixte`/`professeur`), trop etroit pour cette
+     spec (ne couvre ni "ouvert a tous" ni "parents" ni "AP" isolement). Un compte dont le role n'est
+     pas dans la liste autorisee ne doit pas voir le forum exister (meme discipline de masquage que
+     partout ailleurs dans ce projet : liste et detail se comportent comme si le forum n'existait
+     pas pour ce lecteur, pas un refus explicite qui revelerait son existence).
+  3. **Metadonnees du forum : titre (deja existant), description (deja existante), tags (deja
+     existants — a rendre reellement exploitables en recherche s'ils ne le sont pas deja, meme gap
+     deja rencontre et corrige pour d'autres types de contenu de ce projet), et une image
+     d'illustration (nouvelle).** L'image suit la meme discipline que partout ailleurs dans ce
+     projet : stockage sur un volume Docker nomme propre a `community-path-service` (jamais un
+     volume d'un autre service), type detecte sur les octets reels, re-encodage systematique,
+     SVG refuse, nom de fichier genere cote serveur, plafonds de taille exposes par une route de
+     constraintes lue avant l'affichage du selecteur de fichier (meme modele que
+     `GET /profiles/avatar/constraints` et `GET /exercises/image-constraints`). Route de lecture
+     authentifiee qui reapplique la restriction de role du forum (un forum masque pour ce role masque
+     aussi son image).
+  4. **Charte de bonne conduite avant de participer — pas avant de lire.** Tout compte doit
+     explicitement accepter une charte avant de pouvoir publier un commentaire (creation de forum
+     restant reservee au RP, non concernee). La lecture d'un forum et de ses commentaires reste
+     ouverte sans acceptation prealable. **Hypothese retenue par l'orchestrateur, a confirmer par
+     l'utilisateur si l'intention differait** : la charte est **unique et globale** (« une charte de
+     bonne conduite », pas une par forum), acceptee **une fois** par utilisateur et valable pour tous
+     les forums ensuite — pas un mecanisme par forum. Le texte de la charte n'est pas encore fourni ;
+     ne pas bloquer le chantier dessus : `community-path-service` doit prevoir un champ de texte
+     modifiable a part (reglage simple, editable au minimum par le RP, envisageable aussi par le TI
+     sur le modele des autres reglages systeme de ce projet), initialement vide ou avec un texte de
+     placeholder, remplace des que l'utilisateur fournit le texte reel. Le mecanisme d'acceptation
+     (nouvelle table d'acceptation par utilisateur, horodatee) doit fonctionner independamment du
+     contenu exact du texte — pas de versionnage demande, ne pas en construire par anticipation.
+  5. **Aucune moderation a priori : un commentaire est publie immediatement.** Deja le comportement
+     actuel (pas de statut de validation sur `ForumComment`) — confirme, rien a changer sur ce point.
+  6. **Le RP peut supprimer un post a posteriori.** Nouvelle route de suppression d'un commentaire,
+     reservee au RP (l'enonce de l'utilisateur ne mentionne que le RP — ne pas etendre a l'auteur du
+     commentaire ni a l'AP sans demande explicite, principe du projet de ne pas construire au-dela de
+     ce qui est demande). Suppression physique ou traçee (append-only) laissee a l'appreciation de
+     `community-path-service`, en coherence avec le reste du service — rien dans cette specification
+     n'exige explicitement une preuve retroactive comme pour les consentements/relations ailleurs
+     dans le projet.
+  7. **`ForumExclusion` (deja existant, exclusion individuelle d'un utilisateur precis d'un forum)
+     n'est pas remis en cause par cette specification** et reste un mecanisme complementaire a la
+     restriction par categorie de role (l'un exclut une personne precise, l'autre une categorie
+     entiere) — les deux peuvent coexister sur un meme forum.
+  8. **Sequencement de la delegation** : `community-path-service` d'abord (modele de donnees,
+     retrait de la creation AP, restriction de role, image d'illustration, charte + acceptation,
+     suppression RP d'un commentaire), `front-developper` ensuite une fois le contrat stabilise
+     (formulaire de creation RP avec les nouveaux champs, ecran de restriction de role, blocage de
+     la zone de commentaire tant que la charte n'est pas acceptee, bouton de suppression cote RP).
+     Le texte reel de la charte sera fourni separement par l'utilisateur — ne pas attendre ce texte
+     pour livrer le mecanisme technique.
+

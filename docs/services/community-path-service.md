@@ -213,3 +213,41 @@ Changements principaux par rapport à la session 2026-06-18 :
 - L'arborescence et le tableau « Routes disponibles » ci-dessus (lignes ~83-169) n'ont pas été
   remis à jour ligne par ligne pour cette refonte — se référer à `docs/routes.md` plutôt qu'à ce
   tableau pour toute route Forums.
+
+## Masquage RP d'un forum — 2026-09-04 (complément direct de la refonte, branche `feat/community-path-forum-hide`)
+
+Suite de la refonte ci-dessus, sur demande explicite de l'utilisateur (voir
+`docs/architecture/identite-profils-acces.md`, section « Suite du developpement des Forums,
+complements demandes le 2026-09-04 », point 3) : le RP doit pouvoir retirer un forum de la lecture
+de tout le monde sauf lui-même.
+
+- **`Forum` gagne trois colonnes** : `isHidden: boolean` (défaut `false`), `hiddenAt: Date | null`,
+  `hiddenByUserId: string | null`. Non destructif — aucune suppression de ligne, même principe que
+  les consentements/relations/validations de contenu ailleurs dans ce projet. Ce service n'a pas de
+  migrations TypeORM (schéma poussé par `synchronize` hors production, comme documenté dans les
+  points ouverts d'architecture) : ces colonnes arrivent donc par `synchronize`, sans script dédié.
+- **`POST /forums/:id/hide`**, réservé au RP. Idempotent : masquer un forum déjà caché renvoie
+  l'entité telle quelle sans réécrire `hiddenAt`/`hiddenByUserId` (préserve la trace d'origine).
+  Aucune route de réouverture — non demandée, design volontairement laissé réversible en interne
+  (un simple flip du booléen suffirait) si le besoin apparaît plus tard.
+- **Masquage plus strict que la restriction par rôle existante** : un forum caché est invisible à
+  tout le monde sauf au RP, y compris l'administrateur financier et le technicien informatique qui
+  bénéficient pourtant du bypass `FORUM_ADMIN_BYPASS_ROLES` pour la restriction par `allowedRoles`.
+  Nouvelle fonction exportée `isForumHiddenFromRole()` (`forums.service.ts`), distincte de
+  `isRoleAllowedForForum()` — les deux sont combinées dans `getAccessibleForumOrThrow()`, point de
+  passage commun à `getForum`, `addComment`, `getForumComments`, `getForumImage`. Le masquage
+  s'applique aussi dans `findAllForums()` (clause SQL `isHidden = false` ajoutée pour tout rôle
+  autre que RP, y compris AF/TI).
+- **`GET /forums?mine=true`** (nouveau paramètre) : filtre par `createdById = appelant`, tous
+  statuts confondus (y compris ses propres forums cachés) — même convention que `mine=true` pour
+  Quizz/Exercice dans `content-catalog-service`. C'est l'unique moyen pour le RP de retrouver ses
+  forums cachés, puisqu'un forum caché est autrement invisible même dans la liste générale du RP
+  qui l'a masqué lui-même (le masquage n'a d'exception que pour la lecture individuelle via `:id`,
+  pas pour la liste générale — cohérent avec « on n'expose pas ce qu'on a délibérément retiré »).
+- Tests : 3 fichiers mis à jour (`forums.service.spec.ts`, `forums.controller.spec.ts`,
+  `test/unit/acceptance/community-path-acceptance.spec.ts`) — nouvelles suites `hideForum()` et
+  `isForumHiddenFromRole()`, signature de `findAllForums()` étendue (`requesterId`, `mine`), tous
+  les appelants et fixtures `buildSampleForum()` mis à jour en conséquence. 183 tests passent,
+  `tsc --noEmit` propre.
+- Contrat détaillé : `docs/routes.md`, section `## community-path-service` (routes, formes de
+  réponse, masquage, notes front).

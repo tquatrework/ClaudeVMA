@@ -79,19 +79,23 @@ export class ForumsController {
     summary: 'Lister les forums',
     description:
       'Retourne les forums accessibles à l\'appelant : les forums restreints à des rôles auxquels ' +
-      'l\'appelant n\'appartient pas ne sont pas retournés (masqués, pas de 403). RP/AF/TI voient tout.',
+      'l\'appelant n\'appartient pas ne sont pas retournés (masqués, pas de 403). RP/AF/TI voient tout ' +
+      'sauf les forums cachés (isHidden), réservés au RP seul (2026-09-04). Avec mine=true, ne renvoie ' +
+      'que les forums créés par l\'appelant, tous statuts confondus (y compris ses forums cachés).',
   })
   @ApiQuery({ name: 'tags', required: false, description: 'Filtre par tags, séparés par virgule' })
+  @ApiQuery({ name: 'mine', required: false, description: 'true pour ne lister que mes propres forums, tous statuts confondus' })
   @ApiResponse({ status: 200, description: 'Liste des forums accessibles' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   async findAllForums(
     @CurrentUser() currentUser: AuthenticatedUser,
     @Query('tags') tags?: string,
+    @Query('mine') mine?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     const tagList = tags ? tags.split(',') : undefined;
-    return this.forumsService.findAllForums(currentUser.role, tagList);
+    return this.forumsService.findAllForums(currentUser.id, currentUser.role, tagList, mine === 'true');
   }
 
   // ─── Charte de bonne conduite ─────────────────────────────────────────
@@ -190,6 +194,28 @@ export class ForumsController {
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     return this.forumsService.getForum(forumId, currentUser.role);
+  }
+
+  @Post(':id/hide')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Masquer un forum',
+    description:
+      'Retire un forum de la lecture de tout le monde sauf du RP. Réservé au RP. Non destructif : ' +
+      "pose un indicateur d'état (isHidden), la ligne n'est jamais supprimée. Idempotent si déjà " +
+      "caché. Aucune route de réouverture n'existe pour l'instant.",
+  })
+  @ApiParam({ name: 'id', description: 'UUID du forum' })
+  @ApiResponse({ status: 200, description: 'Forum masqué (ou déjà masqué), entité à jour renvoyée' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant (réservé au RP)' })
+  @ApiResponse({ status: 404, description: 'Forum introuvable' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  async hideForum(
+    @Param('id') forumId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.forumsService.hideForum(forumId, currentUser.id, currentUser.role);
   }
 
   @Post(':id/image')

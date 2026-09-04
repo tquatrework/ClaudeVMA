@@ -3431,7 +3431,8 @@ n'existe plus pour ce type de contenu.
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /forums | Créer un forum, visible immédiatement (aucune étape de publication/validation) | 🔒 | responsable_pedagogique (uniquement — l'AP a perdu ce droit le 2026-09-04) | `201 Forum` · `400` DTO invalide · `401` · `403` `"Seul le responsable pédagogique peut créer un forum"` |
-| GET | /forums | Lister les forums accessibles à l'appelant, filtrables par `tags` (query, chaîne séparée par virgules, correspondance `ILIKE` partielle insensible à la casse, `OR` entre tags) | 🔒 | tous rôles authentifiés | `200 Forum[]` · `401` |
+| GET | /forums | Lister les forums accessibles à l'appelant, filtrables par `tags` (query, chaîne séparée par virgules, correspondance `ILIKE` partielle insensible à la casse, `OR` entre tags) et par `mine` (query, `mine=true` : ne renvoie que les forums créés par l'appelant, tous statuts confondus, y compris ses propres forums cachés — ajouté le 2026-09-04) | 🔒 | tous rôles authentifiés | `200 Forum[]` · `401` |
+| POST | /forums/:id/hide | Masquer un forum — le retire de la lecture de tout le monde sauf du RP. Non destructif (`isHidden` posé à `true`, la ligne n'est jamais supprimée). Idempotent : masquer un forum déjà caché renvoie l'entité telle quelle, sans réécrire `hiddenAt`/`hiddenByUserId`. Aucune route de réouverture n'existe pour l'instant — ajouté le 2026-09-04 | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité à jour, `isHidden: true`) · `401` · `403` appelant non RP · `404` forum introuvable |
 
 Body `POST /forums` :
 
@@ -3474,6 +3475,9 @@ Forme de l'entité `Forum`, renvoyée par `POST /forums`, dans le tableau de `GE
   "createdByRole": "string (toujours \"responsable_pedagogique\" pour un forum créé après le 2026-09-04)",
   "imageFilename": "string | null",
   "imageMimeType": "string | null",
+  "isHidden": "boolean (ajouté le 2026-09-04, false par défaut)",
+  "hiddenAt": "ISO date | null (ajouté le 2026-09-04)",
+  "hiddenByUserId": "uuid | null (ajouté le 2026-09-04 — jamais destiné à être affiché, UUID technique)",
   "createdAt": "ISO date",
   "updatedAt": "ISO date"
 }
@@ -3494,14 +3498,27 @@ lieu d'un 403 qui révélerait l'existence du forum) — voir ces routes plus ba
 renvoie donc jamais lui-même de 403 pour ce motif : le filtrage se fait par omission dans la
 liste.
 
+**Masquage RP (`isHidden`) — ajouté le 2026-09-04, plus strict que le masquage par rôle
+ci-dessus.** Un forum avec `isHidden: true` est **absent** de `GET /forums`, `GET /forums/:id`,
+`GET /forums/:id/comments`, `GET /forums/:id/image` et refusé (404) sur
+`POST /forums/:id/comments`, pour **tout le monde sauf le RP** — y compris l'administrateur
+financier et le technicien informatique, qui bénéficient pourtant du bypass de la restriction par
+rôle (`FORUM_ADMIN_BYPASS_ROLES`) mais **pas** de celui du masquage RP : seul
+`responsable_pedagogique` voit un forum caché. Même discipline 404 (jamais 403) que la restriction
+par rôle. **Aucune route de réouverture n'existe** : une fois posé, `isHidden` ne peut être remis à
+`false` par aucune route actuelle — la donnée reste non destructive en base (pensé pour une
+évolution future), mais rien ne l'expose aujourd'hui côté API. Pour retrouver ses propres forums
+cachés, le RP utilise `GET /forums?mine=true` (voir ci-dessus), qui ignore à la fois la restriction
+de rôle et le masquage pour les forums que l'appelant a lui-même créés.
+
 **Détail d'un forum, et lecture des commentaires — ajoutés le 2026-09-04, suite directe de la
 PR #230.** Le gap documenté ci-dessous (ancienne version de cette section) a été comblé : un écran
 de fil de discussion est désormais constructible avec le contrat actuel.
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /forums/:id | Détail d'un forum unique | 🔒 | tous rôles autorisés sur ce forum | `200 Forum` (même forme que `GET /forums`) · `401` · `404` forum inexistant **ou** rôle non autorisé sur ce forum restreint (masquage, même erreur générique dans les deux cas) |
-| GET | /forums/:id/comments | Lister les commentaires d'un forum, **du plus ancien au plus récent** (ordre de lecture d'un fil de discussion — choix explicite du service, l'arbitrage ne précisait pas de sens) | 🔒 | mêmes droits que le détail du forum | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que ci-dessus |
+| GET | /forums/:id | Détail d'un forum unique | 🔒 | tous rôles autorisés sur ce forum | `200 Forum` (même forme que `GET /forums`) · `401` · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché (`isHidden`) pour un appelant non RP (masquage, même erreur générique dans les trois cas) |
+| GET | /forums/:id/comments | Lister les commentaires d'un forum, **du plus ancien au plus récent** (ordre de lecture d'un fil de discussion — choix explicite du service, l'arbitrage ne précisait pas de sens) | 🔒 | mêmes droits que le détail du forum | `200 {data: ForumComment[], page, limit, total, totalPages}` · `400` `page`/`limit` invalide · `401` · `404` même masquage que ci-dessus (rôle restreint ou forum caché) |
 
 **Placement dans le contrôleur (important pour qui retouche ce fichier)** : `GET /forums/:id` est
 déclaré *après* les routes littérales à un seul segment (`GET /forums/charter`,
@@ -3518,9 +3535,10 @@ pagination dans `community-path-service` — utilitaire partagé
 `src/common/utils/pagination.util.ts`, réutilisable pour un futur besoin paginé du même service
 (Parcours, Badges).
 
-**Masquage identique à `GET /forums`/`POST /forums/:id/comments`** : forum inexistant et rôle non
-autorisé sur un forum restreint renvoient la **même** `404` générique, jamais de `403` qui
-révélerait l'existence du forum.
+**Masquage identique à `GET /forums`/`POST /forums/:id/comments`** : forum inexistant, rôle non
+autorisé sur un forum restreint, ou forum caché (`isHidden`, ajouté le 2026-09-04) pour un
+appelant non RP renvoient la **même** `404` générique, jamais de `403` qui révélerait l'existence
+du forum.
 
 **Charte de bonne conduite : aucune nouvelle route nécessaire.** La charte est globale, pas
 propre à un forum (voir section « Charte de bonne conduite » ci-dessous) : `GET /forums/charter/acceptance`,
@@ -3562,7 +3580,7 @@ fichier généré côté serveur.
 |---|---|---|---|---|---|
 | GET | /forums/image-constraints | **À lire avant d'afficher le sélecteur de fichier**, sur le modèle de `GET /profiles/avatar/constraints` — jamais codé en dur côté front | 🔒 | tout compte authentifié | `200 {maxSizeBytes, allowedMimeTypes}` — ex. `{"maxSizeBytes":1000000,"allowedMimeTypes":["image/jpeg","image/png","image/webp","image/gif"]}` · `401` |
 | POST | /forums/:id/image | Téléverser ou remplacer l'image d'illustration. `multipart/form-data`, champ de fichier nommé **`file`** | 🔒 | responsable_pedagogique (uniquement) | `200 Forum` (entité mise à jour, `imageFilename`/`imageMimeType` renseignés — toujours utiliser `GET /forums/:id/image` pour l'affichage, jamais reconstruire un chemin) · `400` aucun fichier envoyé, fichier > 1 000 000 octets (message cite la taille reçue et la limite, en français), ou format non reconnu par le réencodage (SVG compris) · `403` appelant non RP · `404` forum introuvable |
-| GET | /forums/:id/image | Lire le binaire de l'image, `Content-Type` posé selon le type réel détecté à l'envoi. Réapplique la restriction de rôle du forum : un forum masqué pour ce rôle masque aussi son image | 🔒 | tous rôles authentifiés, sous réserve d'accès au forum | `200` corps binaire · `404` — **trois cas indistincts côté front, volontairement** : forum inexistant, forum existant mais rôle non autorisé (restriction), ou forum accessible mais sans image envoyée |
+| GET | /forums/:id/image | Lire le binaire de l'image, `Content-Type` posé selon le type réel détecté à l'envoi. Réapplique la restriction de rôle **et** le masquage RP (`isHidden`) du forum : un forum masqué ou caché pour ce rôle masque aussi son image | 🔒 | tous rôles authentifiés, sous réserve d'accès au forum | `200` corps binaire · `404` — **cas indistincts côté front, volontairement** : forum inexistant, forum existant mais rôle non autorisé (restriction), forum caché (`isHidden`) pour un appelant non RP, ou forum accessible mais sans image envoyée |
 
 Plafond fixé à **1 000 000 octets (1 Mo SI)**, même valeur et même motif que l'avatar de profil
 (2026-08-10) : rester strictement sous le défaut non déclaré de 1 Mio de `nginx-global`
@@ -3573,7 +3591,7 @@ routage nécessaire côté gateway pour cette taille).
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| POST | /forums/:id/comments | Publier un commentaire. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (voir corps structuré ci-dessous) · `404` forum inexistant **ou** rôle non autorisé sur ce forum restreint (masquage, même erreur générique dans les deux cas) |
+| POST | /forums/:id/comments | Publier un commentaire. Aucune modération a priori — publié immédiatement | 🔒 | tous rôles autorisés sur ce forum, non exclus, ayant accepté la charte | `201 ForumComment` · `403` exclu de ce forum, ou charte non acceptée (voir corps structuré ci-dessous) · `404` forum inexistant, rôle non autorisé sur ce forum restreint, **ou** forum caché (`isHidden`) pour un appelant non RP (masquage, même erreur générique dans les trois cas) |
 | DELETE | /forums/:id/comments/:commentId | Supprimer un commentaire a posteriori. Suppression **physique**, définitive (pas de trace conservée — rien dans l'arbitrage n'exige de preuve rétroactive ici, à la différence des consentements/relations ailleurs dans le projet) | 🔒 | responsable_pedagogique (uniquement — ni l'auteur, ni l'AP, ni le TI) | `204` (pas de corps) · `403` appelant non RP · `404` commentaire introuvable pour ce `forumId` précis (y compris s'il existe mais sous un autre forum) |
 
 Body `POST /forums/:id/comments` : `{ "content": "string (requis, non vide)" }`.
@@ -3628,3 +3646,10 @@ Body : `{ "excludedUserId": "uuid (requis)", "reason": "string (optionnel)" }`. 
   reste la seule route d'écriture.
 - Le bouton « Commenter » vs « Accepter la charte » se pilote avec `GET /forums/charter/acceptance`
   (globale, pas besoin de la rappeler par forum) — voir section « Détail... » ci-dessus.
+- **Bouton « Cacher » (ajouté le 2026-09-04)** : dans le panneau de modération RP, appeler
+  `POST /forums/:id/hide` (sans body). Réponse `200 Forum` avec `isHidden: true` — retirer le forum
+  de l'écran courant après succès (il deviendra invisible à tout rechargement de `GET /forums`,
+  `GET /forums/:id`, `GET /forums/:id/comments` et `GET /forums/:id/image`, y compris pour AF/TI).
+  Aucun bouton « Décacher » à construire : aucune route de réouverture n'existe. Pour retrouver ses
+  forums cachés, le RP utilise `GET /forums?mine=true` (tous statuts confondus pour l'auteur) —
+  c'est l'unique point d'entrée pour lister ce qu'on a masqué.

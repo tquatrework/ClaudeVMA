@@ -78,6 +78,9 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     createdByRole: UserRole.RESPONSABLE_PEDAGOGIQUE,
     imageFilename: null,
     imageMimeType: null,
+    isHidden: false,
+    hiddenAt: null,
+    hiddenByUserId: null,
     comments: [],
     exclusions: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -653,25 +656,26 @@ describe('CPS-AC-005 -- Forum restreint a un role : masquage total pour les autr
     const qb = buildForumQueryBuilderMock([buildSampleForum(), buildSampleForum({ id: 'fr-restricted', allowedRoles: [ForumRestrictableRole.FORMATEUR] })]);
     forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-    await forumsService.findAllForums(UserRole.RESPONSABLE_PEDAGOGIQUE);
+    await forumsService.findAllForums(RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
 
     expect(qb.andWhere).not.toHaveBeenCalled();
   });
 
-  it("l'administrateur financier voit aussi tous les forums (bypass admin)", async () => {
+  it("l'administrateur financier voit tous les forums restreints par role (bypass admin), mais pas les forums caches", async () => {
     const qb = buildForumQueryBuilderMock([buildSampleForum()]);
     forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-    await forumsService.findAllForums(UserRole.ADMINISTRATEUR_FINANCIER);
+    await forumsService.findAllForums(AP_ID, UserRole.ADMINISTRATEUR_FINANCIER);
 
-    expect(qb.andWhere).not.toHaveBeenCalled();
+    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    expect(qb.andWhere).toHaveBeenCalledWith('forum.isHidden = false');
   });
 
   it('un eleve ne voit que les forums ouverts ou explicitement restreints aux eleves (clause de role appliquee)', async () => {
     const qb = buildForumQueryBuilderMock([buildSampleForum({ allowedRoles: null })]);
     forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-    await forumsService.findAllForums(UserRole.ELEVE);
+    await forumsService.findAllForums(ELEVE_ID, UserRole.ELEVE);
 
     expect(qb.andWhere).toHaveBeenCalled();
   });

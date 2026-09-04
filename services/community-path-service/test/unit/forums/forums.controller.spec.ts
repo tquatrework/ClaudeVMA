@@ -35,6 +35,7 @@ const mockForumsService = {
   createForum: jest.fn(),
   findAllForums: jest.fn(),
   getForum: jest.fn(),
+  hideForum: jest.fn(),
   getForumComments: jest.fn(),
   addComment: jest.fn(),
   deleteComment: jest.fn(),
@@ -131,12 +132,17 @@ describe('ForumsController', () => {
   // ─── GET /forums ─────────────────────────────────────────────────────────────
 
   describe('GET /forums — findAllForums()', () => {
-    it("délègue au service avec le rôle courant, sans tags si non fourni", async () => {
+    it("délègue au service avec l'id, le rôle courant, sans tags si non fourni, mine=false par défaut", async () => {
       mockForumsService.findAllForums.mockResolvedValue([mockForum]);
 
       const result = await controller.findAllForums(rpUser);
 
-      expect(mockForumsService.findAllForums).toHaveBeenCalledWith(UserRole.RESPONSABLE_PEDAGOGIQUE, undefined);
+      expect(mockForumsService.findAllForums).toHaveBeenCalledWith(
+        RP_ID,
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        undefined,
+        false,
+      );
       expect(result).toEqual([mockForum]);
     });
 
@@ -145,7 +151,25 @@ describe('ForumsController', () => {
 
       await controller.findAllForums(eleveUser, 'algèbre,trigonométrie');
 
-      expect(mockForumsService.findAllForums).toHaveBeenCalledWith(UserRole.ELEVE, ['algèbre', 'trigonométrie']);
+      expect(mockForumsService.findAllForums).toHaveBeenCalledWith(
+        ELEVE_ID,
+        UserRole.ELEVE,
+        ['algèbre', 'trigonométrie'],
+        false,
+      );
+    });
+
+    it('transmet mine=true quand demandé', async () => {
+      mockForumsService.findAllForums.mockResolvedValue([mockForum]);
+
+      await controller.findAllForums(rpUser, undefined, 'true');
+
+      expect(mockForumsService.findAllForums).toHaveBeenCalledWith(
+        RP_ID,
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        undefined,
+        true,
+      );
     });
 
     it('retourne une liste vide pour un rôle sans forum accessible', async () => {
@@ -173,6 +197,32 @@ describe('ForumsController', () => {
       mockForumsService.getForum.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
 
       await expect(controller.findOneForum(FORUM_ID, eleveUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── POST /forums/:id/hide ────────────────────────────────────────────────
+
+  describe('POST /forums/:id/hide — hideForum()', () => {
+    it('délègue au service avec forumId, userId et rôle', async () => {
+      const hiddenForum = { ...mockForum, isHidden: true };
+      mockForumsService.hideForum.mockResolvedValue(hiddenForum);
+
+      const result = await controller.hideForum(FORUM_ID, rpUser);
+
+      expect(mockForumsService.hideForum).toHaveBeenCalledWith(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+      expect(result).toEqual(hiddenForum);
+    });
+
+    it("propage ForbiddenException si l'appelant n'est pas RP", async () => {
+      mockForumsService.hideForum.mockRejectedValue(new ForbiddenException());
+
+      await expect(controller.hideForum(FORUM_ID, apUser)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('propage NotFoundException si le forum est introuvable', async () => {
+      mockForumsService.hideForum.mockRejectedValue(new NotFoundException(`Forum ${FORUM_ID} introuvable`));
+
+      await expect(controller.hideForum(FORUM_ID, rpUser)).rejects.toThrow(NotFoundException);
     });
   });
 

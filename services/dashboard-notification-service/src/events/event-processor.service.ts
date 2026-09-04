@@ -140,6 +140,15 @@ export class EventProcessorService {
       case 'EvaluationCorrected':
         await this.handleEvaluationCorrected(eventId, eventName, payload);
         break;
+      case 'ContactRequestCreated':
+        await this.handleContactRequestCreated(eventId, eventName, payload);
+        break;
+      case 'ContactRequestAccepted':
+        await this.handleContactRequestOutcomeForRequester(eventId, eventName, payload, NotificationType.CONTACT_REQUEST_ACCEPTED);
+        break;
+      case 'ContactRequestDeclined':
+        await this.handleContactRequestOutcomeForRequester(eventId, eventName, payload, NotificationType.CONTACT_REQUEST_DECLINED);
+        break;
       case 'TeacherRequestClosed':
       case 'TeacherRequestDeleted':
         // No notification: TeacherRequestClosed is redundant with TeacherAssigned's
@@ -505,6 +514,61 @@ export class EventProcessorService {
       comment: payload.comment,
     };
     await this.persist(eventId, eventName, [{ userId: studentId, type: NotificationType.EVALUATION_CORRECTED, metadata }]);
+  }
+
+  /**
+   * `ContactRequestCreated`: `communication-service` publishes
+   * `{requestId, requesterId, targetId}` (verified 2026-09-04 directly on
+   * the live Redis stream — no docs/routes.md contract existed for this
+   * payload yet, and no real contact request had been created in
+   * production to observe passively, so this was confirmed by performing
+   * a real request/accept/decline round-trip against the deployed stack).
+   * Recipient: `targetId` — the person who must accept/decline, never the
+   * requester (`docs/architecture/contacts-messagerie.md`, point 9).
+   */
+  private async handleContactRequestCreated(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const requesterId = payload.requesterId as string;
+    const targetId = payload.targetId as string;
+    const names = await this.resolveNames([requesterId, targetId]);
+    const metadata = {
+      requestId: payload.requestId,
+      requesterId,
+      requesterName: displayName(names.get(requesterId)),
+      targetId,
+      targetName: displayName(names.get(targetId)),
+    };
+    await this.persist(eventId, eventName, [
+      { userId: targetId, type: NotificationType.CONTACT_REQUEST_RECEIVED, metadata },
+    ]);
+  }
+
+  /**
+   * `ContactRequestAccepted` / `ContactRequestDeclined`: same payload shape
+   * as `ContactRequestCreated` above. Recipient: `requesterId` — the
+   * original requester learns the outcome of their own request
+   * (`docs/architecture/contacts-messagerie.md`, point 9). The payload
+   * carries no detail about the refusal penalty (cooldown / permanent
+   * block) — `communication-service` does not publish it, so none is
+   * fabricated here; see the session report for this as an open point
+   * rather than an oversight.
+   */
+  private async handleContactRequestOutcomeForRequester(
+    eventId: string,
+    eventName: string,
+    payload: Record<string, unknown>,
+    type: NotificationType,
+  ): Promise<void> {
+    const requesterId = payload.requesterId as string;
+    const targetId = payload.targetId as string;
+    const names = await this.resolveNames([requesterId, targetId]);
+    const metadata = {
+      requestId: payload.requestId,
+      requesterId,
+      requesterName: displayName(names.get(requesterId)),
+      targetId,
+      targetName: displayName(names.get(targetId)),
+    };
+    await this.persist(eventId, eventName, [{ userId: requesterId, type, metadata }]);
   }
 
   /** Atomically records the event as processed and creates its notifications, or neither. */

@@ -806,6 +806,81 @@ describe('EventProcessorService', () => {
     });
   });
 
+  describe('ContactRequestCreated', () => {
+    it('notifies the target (never the requester) with both resolved names', async () => {
+      displayNames({
+        'requester-1': { firstName: 'Camille', lastName: 'Durand' },
+        'target-1': { firstName: 'Alex', lastName: 'Martin' },
+      });
+
+      await processor.process({
+        eventId: 'evt-30',
+        eventName: 'ContactRequestCreated',
+        payload: JSON.stringify({ requestId: 'request-1', requesterId: 'requester-1', targetId: 'target-1' }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'target-1',
+          type: NotificationType.CONTACT_REQUEST_RECEIVED,
+          metadata: expect.objectContaining({
+            requestId: 'request-1',
+            requesterId: 'requester-1',
+            requesterName: 'Camille Durand',
+            targetId: 'target-1',
+            targetName: 'Alex Martin',
+          }),
+        }),
+      );
+    });
+
+    it('does not acknowledge (throws) when a name cannot be resolved', async () => {
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      await expect(
+        processor.process({
+          eventId: 'evt-31',
+          eventName: 'ContactRequestCreated',
+          payload: JSON.stringify({ requestId: 'request-1', requesterId: 'requester-1', targetId: 'target-1' }),
+        }),
+      ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ContactRequestAccepted / ContactRequestDeclined', () => {
+    it.each([
+      ['ContactRequestAccepted', NotificationType.CONTACT_REQUEST_ACCEPTED],
+      ['ContactRequestDeclined', NotificationType.CONTACT_REQUEST_DECLINED],
+    ])('notifies the original requester (never the target) for %s', async (eventName, type) => {
+      displayNames({
+        'requester-1': { firstName: 'Camille', lastName: 'Durand' },
+        'target-1': { firstName: 'Alex', lastName: 'Martin' },
+      });
+
+      await processor.process({
+        eventId: 'evt-32',
+        eventName,
+        payload: JSON.stringify({ requestId: 'request-1', requesterId: 'requester-1', targetId: 'target-1' }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'requester-1',
+          type,
+          metadata: expect.objectContaining({
+            requestId: 'request-1',
+            requesterId: 'requester-1',
+            requesterName: 'Camille Durand',
+            targetId: 'target-1',
+            targetName: 'Alex Martin',
+          }),
+        }),
+      );
+    });
+  });
+
   describe('events with no notification', () => {
     it.each(['TeacherRequestClosed', 'TeacherRequestDeleted'])('marks %s as processed without creating a notification', async (eventName) => {
       await processor.process({ eventId: 'evt-8', eventName, payload: '{}' });

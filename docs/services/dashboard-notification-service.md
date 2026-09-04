@@ -733,3 +733,95 @@ resolution de nom par type declenchant). Suite complete du service : **111 tests
   bascule directement en `EvaluationCorrectionAllDeclined` (`reason: no_linked_teacher`) cote
   `learning-activity-service`, jamais observe ici avec un tableau vide. Traite defensivement
   (`teacherIds ?? []`) mais non exerce par un test dedie, le contrat l'exclut structurellement.
+
+## Consommation des 3 evenements Contacts de communication-service (2026-09-04)
+
+Branche `feat/dashboard-notification-contacts-events`. Cable les notifications de la fonctionnalite
+Contacts (`docs/architecture/contacts-messagerie.md`, point 9) : `communication-service` publie
+desormais `ContactRequestCreated`/`ContactRequestAccepted`/`ContactRequestDeclined` sur
+`visiomath:events` (meme pattern outbox + `XADD`, PR #257/#262).
+
+### Verifie avant modification — payload confirme empiriquement, pas suppose
+
+Aucun contrat de payload n'etait documente dans `docs/routes.md` pour ces trois evenements au
+demarrage de cette session (`docs/services/communication-service.md` mentionnait seulement que les
+evenements existaient, sans forme de payload), et **zero demande de contact reelle n'existait
+encore en production** (`XRANGE visiomath:events` verifie directement : aucune occurrence de
+`ContactRequest*` sur les 250 entrees du flux au demarrage). Impossible d'observer passivement le
+payload reel. Plutot que de le deviner par analogie (comme `RelationEventConsumerService` de
+`communication-service` le fait par necessite pour les evenements de relation de `profile-service`,
+non encore verifies non plus a ce jour), un aller-retour reel a ete effectue directement contre
+`https://claudevma.visioprof.fr` :
+1. Trois comptes de test crees (`POST /accounts/students`, `POST /accounts/teachers` x2).
+2. `POST /contacts/requests` (eleve -> formateur A), `POST /contacts/requests` (eleve -> formateur B).
+3. `POST /contacts/requests/:id/accept` (formateur A), `POST /contacts/requests/:id/decline`
+   (formateur B).
+4. Lecture directe du flux (`docker exec visiomath_redis redis-cli -a ... XREVRANGE
+   visiomath:events + - COUNT 30`) : les trois evenements portent exactement
+   `{requestId, requesterId, targetId}` — aucun champ supplementaire, notamment aucune information
+   sur la penalite de refus (cooldown, compteur de refus, blocage definitif).
+5. Constate au passage : `ContactRequestCreated` publie deux fois avec le meme `eventId` (meme
+   republication non transactionnelle deja documentee pour `teacher-request-service`) — sans
+   consequence, absorbee par la deduplication existante.
+Comptes et lignes de test laisses en base (meme pratique que les sessions precedentes de ce
+service) ; aucune donnee de production reelle affectee.
+
+### Modification appliquee
+
+Arborescence modifiee (src/) :
+
+```
+services/dashboard-notification-service/src/
+├── notification/
+│   └── entities/notification.entity.ts    # + 3 NotificationType (CONTACT_REQUEST_*)
+└── events/
+    └── event-processor.service.ts         # + 3 case, + 2 handlers (Accepted/Declined partagent un handler)
+```
+
+- **`ContactRequestCreated`** → destinataire `targetId` uniquement (celui qui doit accepter/
+  refuser, jamais le demandeur — regle explicite de la tache). `type: contact_request_received`.
+- **`ContactRequestAccepted`** / **`ContactRequestDeclined`** → destinataire `requesterId`
+  uniquement (le demandeur original, informe de l'issue). Meme handler partage
+  `handleContactRequestOutcomeForRequester(payload, type)`, sur le modele deja suivi par
+  `handleProposalDecisionForRp`/`handleEvaluationCorrectionDecisionForRp`.
+- Metadata identique dans les trois cas : `{requestId, requesterId, requesterName, targetId,
+  targetName}` — les deux noms sont toujours resolus (via `resolveNames`/
+  `ProfileServiceClient.resolveDisplayNames`, jamais d'UUID stocke comme donnee d'affichage), meme
+  si un seul est effectivement affiche selon le type ; simplifie le contrat de `metadata` pour le
+  front plutot que de faire varier sa forme par type d'evenement.
+- Meme discipline d'erreur que tous les autres handlers : un echec de resolution de nom fait
+  **echouer** `process()` (l'entree reste non acquittee, rejouee par XAUTOCLAIM) plutot que de
+  degrader vers une notification sans nom.
+
+### Decisions techniques
+
+- **Aucune nouvelle route ni nouveau client HTTP.** Reutilise integralement
+  `ProfileServiceClient.resolveDisplayNames` deja en place — aucun appel a `getFinanceOwners` ni
+  `listUserIdsByRole` necessaire ici, les deux destinataires sont deja nommes dans le payload.
+- **Aucune migration necessaire.** `notifications.type` est deja un `varchar(64)` depuis
+  `NotificationEventsConsumer1755100000000` (2026-08-14) — verifie explicitement en base
+  (`\d notifications`) avant de conclure, pas suppose.
+- **Detail de la penalite de refus deliberement absent de la notification `ContactRequestDeclined`**
+  — point ouvert signale par la tache elle-meme, confirme par l'inspection du payload reel : rien
+  n'y indique un cooldown ou un blocage definitif. Rien n'est fabrique cote notification ; si ce
+  detail devient necessaire plus tard, `communication-service` devra l'ajouter au payload publie.
+
+### Tests
+
+`event-processor.service.spec.ts` : 2 nouveaux describe (4 nouveaux cas — `ContactRequestCreated`
+notifie la cible avec les deux noms resolus + cas d'echec de resolution de nom ;
+`ContactRequestAccepted`/`ContactRequestDeclined` notifient le demandeur original, parametre par
+`it.each`). Suite complete du service : **115 tests, tous verts** (`npx jest test/unit`), et
+`npm run build` (nest build) sans erreur. Aucun test e2e n'existe pour ce service (dossier
+`test/e2e` absent, deja signale comme point en suspens depuis la session du 2026-07-22) — non
+construit ici, hors perimetre de cette tache.
+
+### Points en suspens
+
+- Libelles front (`notificationLabels.ts`) pour les 3 nouveaux `type` — non traites ici, a la
+  charge de `front-developper` une fois ce contrat merge.
+- Detail de la penalite de refus sur `ContactRequestDeclined` (voir ci-dessus) — a reprendre si
+  `communication-service` enrichit un jour ce payload.
+- Republication non transactionnelle de `ContactRequestCreated` observee sur le flux reel (meme
+  eventId, deux entrees) — deja absorbee par la deduplication existante de ce service, signalee ici
+  pour memoire seulement, pas un defaut de ce service.

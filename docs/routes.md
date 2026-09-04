@@ -2667,6 +2667,28 @@ notifications par rôle ».
 > `null`, même pour un événement avec un vrai titre. `CalendarEventCreated` porte désormais la
 > valeur réelle et persistée de l'événement (voir section calendar-service ci-dessus, paragraphe
 > « `title` — défaut corrigé le 2026-08-20 »).
+>
+> **`ContactRequestCreated`/`ContactRequestAccepted`/`ContactRequestDeclined` — ajoutés le
+> 2026-09-04** (`docs/architecture/contacts-messagerie.md`, point 9). Publiés par
+> `communication-service` sur le même stream `visiomath:events` (même pattern outbox + `XADD`, PR
+> #257/#262). **Aucun contrat de payload n'était documenté ici au moment de cette session, et
+> aucune demande de contact réelle n'existait encore en production pour l'observer passivement** —
+> confirmé en effectuant un aller-retour réel (demande, acceptation, refus) contre la pile déployée
+> puis en lisant les trois entrées produites sur `XRANGE visiomath:events`, plutôt qu'en supposant
+> le payload par analogie. Les trois événements portent exactement la même forme :
+> `{requestId, requesterId, targetId}` — aucun détail sur la pénalité de refus (cooldown d'un mois,
+> blocage définitif au 3ᵉ refus) n'est publié, donc aucun n'est fabriqué côté notification (point
+> ouvert signalé dans `docs/services/dashboard-notification-service.md`, pas une omission).
+> `ContactRequestCreated → type: contact_request_received`, destinataire `targetId` (celui qui doit
+> accepter/refuser, jamais le demandeur). `ContactRequestAccepted → type: contact_request_accepted`
+> et `ContactRequestDeclined → type: contact_request_declined`, destinataire `requesterId` (le
+> demandeur original, informé de l'issue). `metadata` porte dans les trois cas
+> `{requestId, requesterId, requesterName, targetId, targetName}` — les deux noms sont toujours
+> résolus (même si un seul est affiché selon le type), pour que le front n'ait pas à distinguer une
+> forme de metadata par type. Constaté au passage : `ContactRequestCreated` a été observé publié
+> deux fois avec le même `eventId` sur le flux réel (republication non transactionnelle déjà
+> documentée pour `teacher-request-service`, 2026-08-12) — sans conséquence, la déduplication par
+> `eventId` de ce consommateur l'absorbe comme pour tout autre événement de ce flux.
 
 ---
 

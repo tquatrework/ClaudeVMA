@@ -1,0 +1,55 @@
+/**
+ * Libellés français des Forums — point unique, sur le modèle des autres fichiers de libellés du
+ * projet (`teacherRequestLabels.ts`, `pedagogicalLogLabels.ts`…).
+ */
+
+import { formatFileSize } from './fileSize'
+import { formatAcceptedImageFormats } from './profileAvatar'
+import { getRoleLabel } from './role'
+import type { ForumRestrictableRole } from '../types/forum'
+
+export const FORUM_LABELS = {
+  emptyList: 'Aucun forum disponible pour le moment.',
+  loadError: 'Impossible de charger les forums.',
+  notFound: "Ce forum n'existe pas ou n'est plus accessible.",
+  createButton: 'Créer un forum',
+  createTitle: 'Créer un forum',
+  createHelp: 'Le forum est visible immédiatement, sans étape de validation.',
+  openToEveryone: 'Ouvert à tous les comptes connectés.',
+  restrictedTo: 'Réservé à :',
+  emptyComments: 'Aucun commentaire pour l’instant. Soyez le premier à contribuer !',
+  loadCommentsError: 'Impossible de charger les commentaires.',
+  postCommentError: 'Impossible d’envoyer le commentaire.',
+  excludedError: 'Vous avez été exclu de ce forum.',
+  deleteComment: 'Supprimer',
+  deleteCommentConfirm: 'Supprimer ce commentaire ? Cette action est définitive.',
+  deleteCommentError: 'Impossible de supprimer ce commentaire.',
+  charterRequiredBanner: 'Vous devez accepter la charte de bonne conduite avant de participer à un forum.',
+  charterReadLink: 'Lire la charte de bonne conduite',
+  charterAccept: 'J’accepte la charte',
+  charterAccepting: 'Validation…',
+  charterAcceptedAt: 'Charte acceptée le',
+  charterEmptyPlaceholder:
+    "La charte de bonne conduite n'a pas encore été rédigée par un responsable pédagogique.",
+  imageAlt: "Illustration du forum",
+  addImage: 'Ajouter une image',
+  replaceImage: "Remplacer l'image",
+  uploadingImage: 'Envoi…',
+  imageUploadError: "Impossible d'envoyer l'image.",
+} as const
+
+/** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */
+export function getForumImageMaxSizeHint(maxSizeBytes: number): string {
+  return `Taille maximale : ${formatFileSize(maxSizeBytes) ?? ''}.`
+}
+
+/** « Formats acceptés : JPEG, PNG, WebP ou GIF. » */
+export function getForumImageFormatsHint(allowedMimeTypes: readonly string[]): string {
+  return `Formats acceptés : ${formatAcceptedImageFormats(allowedMimeTypes)}.`
+}
+
+/** Énumération française des rôles autorisés : « Élèves, Formateurs ». */
+export function formatAllowedRolesLabel(allowedRoles: ForumRestrictableRole[] | null): string {
+  if (!allowedRoles || allowedRoles.length === 0) return FORUM_LABELS.openToEveryone
+  return allowedRoles.map((role) => getRoleLabel(role)).join(', ')
+}

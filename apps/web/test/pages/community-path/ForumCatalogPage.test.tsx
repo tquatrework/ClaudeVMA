@@ -1,14 +1,15 @@
 /**
- * Tests pour ForumCatalogPage (Phase 14)
+ * Tests pour ForumCatalogPage — community-path-service, refonte du 2026-09-04
  *
  * Couvre :
  * - Affichage de l'état de chargement
  * - Liste vide et liste avec forums
- * - L'AP voit le bouton "Créer un forum" et peut l'utiliser
  * - Le RP voit le bouton "Créer un forum"
+ * - Un AP ne voit pas le bouton "Créer un forum" (droit retiré le 2026-09-04)
  * - Un élève ne voit pas le bouton "Créer un forum"
- * - AP crée un forum et le voit dans la liste
+ * - Le RP crée un forum et le voit apparaître dans la bannière de confirmation
  * - Gestion d'erreur de chargement
+ * - Un forum restreint affiche les rôles autorisés, un forum ouvert affiche "ouvert à tous"
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -17,16 +18,17 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/communityPath')
+vi.mock('../../../src/api/forums')
 
 import { useAuth } from '../../../src/hooks/useAuth'
-import { fetchForums, createForum } from '../../../src/api/communityPath'
+import { fetchForums, createForum, fetchForumImageConstraints } from '../../../src/api/forums'
 import ForumCatalogPage from '../../../src/pages/ForumCatalogPage'
-import type { Forum } from '../../../src/api/communityPath'
+import type { Forum } from '../../../src/types/forum'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchForums = vi.mocked(fetchForums)
 const mockCreateForum = vi.mocked(createForum)
+const mockFetchForumImageConstraints = vi.mocked(fetchForumImageConstraints)
 
 // ─── Fixtures utilisateurs ────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ const STUDENT_USER = {
   validationStatus: 'active' as const,
 }
 
-function buildAuthMock(userObj = AP_USER) {
+function buildAuthMock(userObj = RP_USER) {
   return {
     user: userObj,
     isAuthenticated: true,
@@ -74,23 +76,36 @@ function buildAuthMock(userObj = AP_USER) {
 
 // ─── Fixtures forums ──────────────────────────────────────────────────────────
 
-const PUBLISHED_FORUM: Forum = {
+const OPEN_FORUM: Forum = {
   id: 'forum-1',
   title: 'Forum Trigonométrie',
   description: 'Discussion autour des fonctions trigonométriques.',
-  authorId: 'ap-1',
-  status: 'published',
+  level: null,
+  difficulty: null,
+  theme: null,
+  competences: null,
+  tags: null,
+  allowedRoles: null,
+  createdById: 'rp-1',
+  createdByRole: 'responsable_pedagogique',
+  imageFilename: null,
+  imageMimeType: null,
   createdAt: '2026-06-17T09:00:00Z',
-  commentCount: 5,
+  updatedAt: '2026-06-17T09:00:00Z',
+}
+
+const RESTRICTED_FORUM: Forum = {
+  ...OPEN_FORUM,
+  id: 'forum-2',
+  title: 'Forum réservé aux élèves',
+  allowedRoles: ['eleve'],
 }
 
 const CREATED_FORUM: Forum = {
+  ...OPEN_FORUM,
   id: 'forum-new',
   title: 'Forum Algèbre',
-  description: 'Espace de discussion sur l\'algèbre.',
-  authorId: 'ap-1',
-  status: 'pending_validation',
-  createdAt: '2026-06-18T10:00:00Z',
+  description: "Espace de discussion sur l'algèbre.",
 }
 
 function renderPage() {
@@ -107,12 +122,16 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockFetchForums.mockResolvedValue([])
+  mockFetchForumImageConstraints.mockResolvedValue({
+    maxSizeBytes: 1_000_000,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+  })
 })
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ForumCatalogPage', () => {
-  it('affiche l\'état de chargement initialement', () => {
+  it("affiche l'état de chargement initialement", () => {
     mockFetchForums.mockReturnValue(new Promise(() => {}))
     renderPage()
     expect(screen.getByText('Chargement des forums…')).toBeDefined()
@@ -126,7 +145,7 @@ describe('ForumCatalogPage', () => {
   })
 
   it('affiche les forums disponibles', async () => {
-    mockFetchForums.mockResolvedValue([PUBLISHED_FORUM])
+    mockFetchForums.mockResolvedValue([OPEN_FORUM])
     renderPage()
 
     await waitFor(() => {
@@ -135,20 +154,39 @@ describe('ForumCatalogPage', () => {
     expect(screen.getByText(/Discussion autour des fonctions/)).toBeDefined()
   })
 
-  it("l'AP voit le bouton 'Créer un forum'", async () => {
+  it('affiche "ouvert à tous" pour un forum sans restriction de rôle', async () => {
+    mockFetchForums.mockResolvedValue([OPEN_FORUM])
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Ouvert à tous les comptes connectés/)).toBeDefined()
+    })
+  })
+
+  it('affiche les rôles autorisés pour un forum restreint', async () => {
+    mockFetchForums.mockResolvedValue([RESTRICTED_FORUM])
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Élève')).toBeDefined()
+    })
+  })
+
+  it("le RP voit le bouton 'Créer un forum'", async () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /créer un forum/i })).toBeDefined()
     })
   })
 
-  it("le RP voit le bouton 'Créer un forum'", async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+  it("l'AP ne voit pas le bouton 'Créer un forum' (droit retiré le 2026-09-04)", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(AP_USER))
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /créer un forum/i })).toBeDefined()
+      expect(screen.getByText(/Aucun forum disponible/)).toBeDefined()
     })
+    expect(screen.queryByRole('button', { name: /créer un forum/i })).toBeNull()
   })
 
   it("l'élève ne voit pas le bouton 'Créer un forum'", async () => {
@@ -156,11 +194,12 @@ describe('ForumCatalogPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /créer un forum/i })).toBeNull()
+      expect(screen.getByText(/Aucun forum disponible/)).toBeDefined()
     })
+    expect(screen.queryByRole('button', { name: /créer un forum/i })).toBeNull()
   })
 
-  it("l'AP peut ouvrir le formulaire de création", async () => {
+  it('le RP peut ouvrir le formulaire de création', async () => {
     renderPage()
 
     await waitFor(() => {
@@ -170,12 +209,10 @@ describe('ForumCatalogPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /créer un forum/i }))
 
     expect(screen.getAllByText('Créer un forum').length).toBeGreaterThanOrEqual(1)
-    expect(
-      screen.getByText(/Le forum sera soumis à validation par un responsable pédagogique/),
-    ).toBeDefined()
+    expect(screen.getByText(/visible immédiatement, sans étape de validation/)).toBeDefined()
   })
 
-  it("l'AP crée un forum et le voit dans la liste", async () => {
+  it('le RP crée un forum et voit la bannière de confirmation', async () => {
     mockCreateForum.mockResolvedValue(CREATED_FORUM)
     renderPage()
 
@@ -184,18 +221,15 @@ describe('ForumCatalogPage', () => {
     })
 
     await userEvent.click(screen.getByRole('button', { name: /créer un forum/i }))
-
     await userEvent.type(screen.getByLabelText(/titre/i), 'Forum Algèbre')
-    await userEvent.type(
-      screen.getByLabelText(/description/i),
-      "Espace de discussion sur l'algèbre.",
-    )
-
     await userEvent.click(screen.getByRole('button', { name: /créer le forum/i }))
 
     await waitFor(() => {
-      expect(screen.getByText('Forum Algèbre')).toBeDefined()
+      expect(screen.getByText(/créé avec succès/)).toBeDefined()
     })
+    expect(mockCreateForum).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Forum Algèbre' }),
+    )
   })
 
   it('affiche une erreur si le chargement échoue', async () => {

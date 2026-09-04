@@ -1,55 +1,14 @@
 /**
  * Module API — community-path-service (Phase 14)
- * Forums, modération, parcours, inscriptions, progression et certificats.
+ * Parcours, inscriptions, progression et certificats.
  * Toutes les requêtes passent par apiClient (base /api/v1).
+ *
+ * Les Forums (même microservice) vivent désormais dans `src/api/forums.ts`, extrait le 2026-09-04
+ * lors de la refonte du contrat Forums — deux surfaces indépendantes, chacune son fichier, même
+ * principe que `tutorials.ts`/`exercises.ts` plutôt qu'un `contentCatalog.ts` fourre-tout.
  */
 
 import apiClient from './client'
-
-// ─── Types — Forums ───────────────────────────────────────────────────────────
-
-export type ForumStatus = 'draft' | 'pending_validation' | 'published' | 'closed'
-
-export interface Forum {
-  id: string
-  title: string
-  description: string
-  authorId: string
-  status: ForumStatus
-  createdAt: string
-  updatedAt?: string
-  commentCount?: number
-}
-
-export interface CreateForumPayload {
-  title: string
-  description: string
-}
-
-export interface ForumComment {
-  id: string
-  forumId: string
-  authorId: string
-  content: string
-  createdAt: string
-}
-
-export interface CreateForumCommentPayload {
-  content: string
-}
-
-export interface ForumExclusion {
-  id: string
-  forumId: string
-  excludedUserId: string
-  reason?: string
-  createdAt: string
-}
-
-export interface CreateForumExclusionPayload {
-  excludedUserId: string
-  reason?: string
-}
 
 // ─── Types — Parcours ─────────────────────────────────────────────────────────
 
@@ -108,53 +67,6 @@ export interface PaginatedResponse<T> {
     page: number
     pageSize: number
   }
-}
-
-// ─── API Forums ───────────────────────────────────────────────────────────────
-
-/**
- * GET /forums
- * Liste les forums (publiés pour tous, tous les statuts pour AP/RP).
- */
-export async function fetchForums(params?: {
-  status?: ForumStatus
-}): Promise<Forum[]> {
-  const { data } = await apiClient.get<Forum[] | PaginatedResponse<Forum>>('/forums', { params })
-  if (Array.isArray(data)) return data
-  return (data as PaginatedResponse<Forum>).data ?? []
-}
-
-/**
- * POST /forums
- * Crée un forum (AP). La publication nécessite validation RP.
- */
-export async function createForum(payload: CreateForumPayload): Promise<Forum> {
-  const { data } = await apiClient.post<Forum>('/forums', payload)
-  return data
-}
-
-/**
- * POST /forums/:id/comments
- * Ajoute un commentaire dans un forum.
- */
-export async function createForumComment(
-  forumId: string,
-  payload: CreateForumCommentPayload,
-): Promise<ForumComment> {
-  const { data } = await apiClient.post<ForumComment>(`/forums/${forumId}/comments`, payload)
-  return data
-}
-
-/**
- * POST /forums/:id/exclusions
- * Exclut un membre d'un forum (modération AP/RP).
- */
-export async function createForumExclusion(
-  forumId: string,
-  payload: CreateForumExclusionPayload,
-): Promise<ForumExclusion> {
-  const { data } = await apiClient.post<ForumExclusion>(`/forums/${forumId}/exclusions`, payload)
-  return data
 }
 
 // ─── API Parcours ─────────────────────────────────────────────────────────────

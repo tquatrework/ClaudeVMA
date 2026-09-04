@@ -413,3 +413,61 @@
      le TI est egalement candidat, voir le premier lot) pour que le texte reste modifiable depuis
      l'interface plutot que par appel API direct.
 
+- Structure en sujets (topics) des Forums, et retrait de 4 champs sans usage. Arbitrage rendu le
+  2026-09-04, sur demande explicite de l'utilisateur, une fois le premier lot Forums entierement
+  livre et deploye.
+  1. **Quatre champs retires de la creation/edition d'un forum** : niveau, difficulte, competences,
+     theme — heritage du modele generique de contenu (aligne a l'origine sur Quizz/Exercice/
+     Evaluation), sans usage reel pour les Forums selon l'utilisateur. A retirer des DTO de creation
+     et d'edition (`POST`/`PATCH /forums`) et des colonnes en base par migration — pas seulement
+     masques cote front, meme discipline que le retrait propre de `department`/`context` deja fait
+     ailleurs dans ce projet (2026-08-11). `tags` et `description` restent, non concernes.
+  2. **Changement structurel majeur : un forum n'est plus une discussion plate, il contient des
+     sujets.** Chaque sujet porte un titre et un premier message ; une discussion (des posts) s'etablit
+     ensuite a l'interieur de ce sujet. Les commentaires (`ForumComment`) n'appartiennent plus
+     directement a un forum : ils appartiennent desormais a un sujet, qui appartient lui-meme a un
+     forum. Consequence directe : les routes actuelles `POST`/`GET /forums/:id/comments` n'ont plus de
+     sens telles quelles.
+     - **N'importe quel membre du forum peut creer un sujet** — pas reserve au RP, a la difference de
+       la creation du forum lui-meme. Sous reserve d'avoir acces au forum (memes regles de masquage
+       que pour commenter : restriction de role du forum, exclusion individuelle, forum non cache pour
+       ce role) et d'avoir accepte la charte de bonne conduite — creer un sujet est une forme de
+       participation, au meme titre que commenter, meme gate.
+     - **Le premier message d'un sujet EST son premier post, pas un champ separe.** Choix de
+       modelisation retenu par l'orchestrateur, non impose mot pour mot par l'utilisateur : creer un
+       sujet revient a fournir `{title, content}`, ou `content` devient le tout premier `ForumComment`
+       de ce sujet (auteur = createur du sujet) — evite de dupliquer le premier message a deux endroits
+       (sur le sujet ET dans la liste de posts).
+  3. **Un sujet doit etre valide par un RP avant d'etre accessible aux autres membres du forum.**
+     Machine a etats minimale : `pending_validation` → `validated`. Le createur du sujet et les
+     administrateurs (RP illimite, AF/TI par le meme bypass deja confirme pour les forums) voient un
+     sujet en attente ; les autres membres ne le voient pas tant qu'il n'est pas valide — meme
+     discipline de masquage que le reste du domaine Forums (le sujet non valide se comporte comme s'il
+     n'existait pas pour un lecteur non autorise). Un etat de refus explicite (`rejected`) n'est pas
+     demande mot pour mot par l'utilisateur mais parait necessaire pour eviter qu'un sujet indesirable
+     reste indefiniment en attente sans decision — laisse a l'appreciation de `community-path-service`,
+     sans obligation de commentaire de refus si non juge necessaire pour un mecanisme aussi simple.
+  4. **Un sujet par defaut "Sujet general", cree automatiquement a la creation d'un forum, deja
+     valide** (pas de flux de validation pour ce sujet systeme — il n'est pas soumis par un membre).
+     **Forums deja existants en production a rattraper** : ce chantier vient d'etre livre le meme
+     jour, mais des forums de test ont deja pu etre crees pendant les verifications HTTP directes des
+     lots precedents — verifier s'il en existe et leur creer retroactivement ce sujet par defaut,
+     plutot que de les laisser sans aucun sujet.
+  5. **Migration des commentaires existants, sans perte** : les `ForumComment` deja crees (tests des
+     lots precedents) doivent etre rattaches au sujet "Sujet general" nouvellement cree pour leur
+     forum, jamais perdus ni laisses orphelins — meme discipline que partout ailleurs dans ce projet
+     (aucune migration ne doit faire disparaitre silencieusement des donnees reelles).
+  6. **Nouvelles routes necessaires** (noms exacts laisses a `community-path-service`, en coherence
+     avec le contrat deja existant et `docs/routes.md`) : creer un sujet, lister les sujets d'un forum
+     (visibles = valides, plus les siens propres et tout ce que voit un administrateur), lire le
+     detail d'un sujet, poster un commentaire dans un sujet, lister les commentaires d'un sujet, valider
+     un sujet (RP). Les anciennes routes `POST`/`GET /forums/:id/comments` sont a retirer ou a
+     rediriger vers le sujet "Sujet general" selon ce qui est le plus propre pour
+     `community-path-service` — a documenter clairement dans `docs/routes.md`, ne pas laisser les deux
+     mecanismes coexister en silence.
+  7. **Sequencement** : `community-path-service` d'abord (retrait des 4 champs, modele Sujet, migration
+     des forums/commentaires existants, nouvelles routes, mise a jour de `docs/routes.md`),
+     `front-developper` ensuite — refonte assez profonde de `ForumDetailPage` (devient une liste de
+     sujets plutot qu'un fil de commentaires direct, avec une page de detail de sujet en plus) et
+     simplification de `ForumCreateForm` (retrait des 4 champs).
+

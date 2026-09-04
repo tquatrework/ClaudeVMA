@@ -7,6 +7,26 @@
 
 ## Besoin courant
 
+Réorganisation du menu haut, demandée le 2026-09-04. Deux volets :
+1. Les Forums, jusqu'ici prévus dans le rail gauche RP (groupe "Contenu", jamais confirmés
+   construits — point ouvert du 2026-09-02), doivent finalement être visibles **pour tous les
+   rôles**, dans le **menu du haut**, à droite.
+2. Les entrées "Contacts" et "Messages" (emplacement actuel à vérifier par `front-developper`
+   avant de coder) doivent être fusionnées en un seul sous-menu "Contacts" — depuis Contacts, on
+   peut envoyer un message à un contact, rien de plus (pas de section Messagerie autonome).
+
+Demande également faite par l'utilisateur, en parallèle du chantier front : un état des lieux de
+l'implémentation actuelle des Forums (front ET backend `community-path-service`, propriétaire du
+domaine forums/parcours/badges) — à produire par les subagents concernés, pas par l'orchestrateur
+lui-même (règle du projet : jamais de lecture directe de `services/*/src/`).
+
+Délégué le 2026-09-04, en parallèle : `front-developper` (transformation du menu haut + rapport
+sur l'état actuel front des Forums) et `community-path-service` (rapport en lecture seule sur
+l'état actuel backend des Forums — aucune écriture demandée pour l'instant, juste un état des
+lieux).
+
+---
+
 Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel "post", demandé le 2026-09-03 après
 premier retour utilisateur sur le chantier Tutos/Vidéos livré le jour même (voir plus bas, clos).
 Revient sur la syntaxe légère (texte brut + `$...$`) mais **scopée aux tutos uniquement**, confirmé

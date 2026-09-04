@@ -367,3 +367,28 @@
      masquage, filtre de retrouvaille cote RP), `front-developper` ensuite (bouton "Cacher" dans le
      panneau de moderation RP existant, `ForumModerationPanel`).
 
+- Edition des metadonnees d'un forum, demandee le 2026-09-04 apres reflexion de l'utilisateur suite
+  a la livraison du masquage ci-dessus ("il faut aussi permettre au RP de reediter les metadonnees").
+  Referme le point 1 laisse ouvert depuis le premier lot (le masquage n'en etait qu'une reponse
+  partielle, explicitement scopee a la visibilite).
+  1. **Nouvelle route d'edition** (`PATCH /forums/:id` ou equivalent, a choisir par
+     `community-path-service` en coherence avec le reste du contrat deja livre) portant sur tous les
+     champs de metadonnees deja acceptes en creation : titre, description, tags, et la restriction de
+     role (`allowedRoles`/equivalent). L'image d'illustration reste geree par sa propre route dediee
+     deja existante (`POST /forums/:id/image`), pas concernee par cette nouvelle route.
+  2. **Droit d'edition : le role RP, pas seulement le RP createur.** Precedent direct a suivre pour la
+     coherence : l'action de masquage livree juste avant est deja reservee au **role**
+     `responsable_pedagogique` dans son ensemble, sans verification que l'appelant est le createur du
+     forum — les forums sont un outil collectif de la fonction RP, pas un contenu individuel a la
+     maniere d'un Quizz ou d'un Exercice cree par un formateur precis. L'edition doit suivre exactement
+     le meme principe : **tout RP peut editer n'importe quel forum**, pas seulement celui qui l'a cree.
+  3. **Un forum cache reste editable** par le RP (le masquage n'est pas un etat terminal empechant la
+     gestion) — coherent avec le fait que le RP continue de voir ses forums caches via `mine=true`.
+  4. **Aucune contrainte de validation nouvelle a inventer** : reutilise les memes regles de validation
+     que la creation (titre non vide, etc. — voir le contrat de `POST /forums` deja documente dans
+     `docs/routes.md`).
+  5. **Sequencement identique aux lots precedents** : `community-path-service` d'abord (route
+     d'edition + mise a jour de `docs/routes.md`), `front-developper` ensuite (formulaire d'edition,
+     probablement en reutilisant `ForumCreateForm` en mode edition plutot qu'en ecrivant un second
+     formulaire — a l'appreciation de `front-developper`).
+

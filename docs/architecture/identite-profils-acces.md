@@ -392,3 +392,24 @@
      probablement en reutilisant `ForumCreateForm` en mode edition plutot qu'en ecrivant un second
      formulaire — a l'appreciation de `front-developper`).
 
+- Texte reel de la charte de bonne conduite fourni par l'utilisateur le 2026-09-04, ferme le dernier
+  point ouvert du chantier Forums. Persiste dans `docs/doc-interne/charte d'utilisation des forums`
+  (texte de reference, hors code). Un premier brouillon promettait un « dispositif de signalement
+  prevu sur la plateforme » qui n'existe pas — l'utilisateur a lui-meme retire cette phrase avant
+  integration, remplacee par un contact email (`contact@visioprof.fr`) : aucune fonctionnalite de
+  signalement in-app n'est donc a construire pour ce chantier.
+  1. **Le texte est du Markdown reel** (titres `#`/`##`, listes a puces, gras), pas la syntaxe legere
+     habituelle de ce projet (liens/formules uniquement). Cas particulier assume : c'est un document
+     unique redige par un administrateur, pas du contenu utilisateur — `front-developper` doit le
+     rendre avec un moteur Markdown qui echappe le HTML par defaut (jamais une injection HTML brute
+     de type `dangerouslySetInnerHTML` sur ce texte, meme raisonnement de securite que partout
+     ailleurs dans ce projet), pas l'afficher tel quel avec les caracteres `#`/`*` visibles.
+  2. **`community-path-service` doit ecrire ce texte reel** via la route d'ecriture de la charte
+     deja construite (`PATCH /forums/charter`) — verifier au passage qu'aucune limite de longueur
+     trop basse ne bloque ce texte reel (env. 3700 caracteres), l'ajuster si necessaire.
+  3. **`front-developper` construit maintenant l'ecran manquant** (point 2 du premier lot, reste
+     ouvert jusqu'ici faute de texte reel a afficher) : lecture/affichage de la charte avant
+     acceptation (rendu Markdown, voir point 1), et un ecran d'edition reserve au RP (au minimum —
+     le TI est egalement candidat, voir le premier lot) pour que le texte reste modifiable depuis
+     l'interface plutot que par appel API direct.
+

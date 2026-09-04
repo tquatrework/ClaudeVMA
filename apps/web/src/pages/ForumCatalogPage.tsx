@@ -38,6 +38,7 @@ export default function ForumCatalogPage() {
   const navigate = useNavigate()
 
   const canCreateForum = hasRole('responsable_pedagogique')
+  const canEditCharter = hasRole('responsable_pedagogique') || hasRole('technicien_informatique')
 
   const [tagFilter, setTagFilter] = useState('')
   const [appliedTagFilter, setAppliedTagFilter] = useState('')
@@ -78,18 +79,30 @@ export default function ForumCatalogPage() {
           title="Forums"
           subtitle="Espaces d'échange de la communauté pédagogique."
           action={
-            canCreateForum &&
-            !isCreateFormOpen && (
-              <button
-                type="button"
-                onClick={() => {
-                  setJustCreatedForum(null)
-                  setIsCreateFormOpen(true)
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                {FORUM_LABELS.createButton}
-              </button>
+            (canCreateForum || canEditCharter) && (
+              <div className="flex flex-wrap gap-2">
+                {canEditCharter && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/community/forums/charter')}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 transition-colors"
+                  >
+                    Modifier la charte de bonne conduite
+                  </button>
+                )}
+                {canCreateForum && !isCreateFormOpen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJustCreatedForum(null)
+                      setIsCreateFormOpen(true)
+                    }}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+                  >
+                    {FORUM_LABELS.createButton}
+                  </button>
+                )}
+              </div>
             )
           }
         />

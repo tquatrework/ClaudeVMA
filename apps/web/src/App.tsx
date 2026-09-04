@@ -72,6 +72,7 @@ import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
 import ForumCatalogPage from './pages/ForumCatalogPage'
 import ForumDetailPage from './pages/ForumDetailPage'
 import ForumModerationPanel from './pages/ForumModerationPanel'
+import ForumCharterEditorPage from './pages/ForumCharterEditorPage'
 import PathCatalogPage from './pages/PathCatalogPage'
 import PathDetailPage from './pages/PathDetailPage'
 import TiAdminDashboard from './pages/TiAdminDashboard'
@@ -869,6 +870,21 @@ export default function App() {
                 ]}
               >
                 <ForumCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/forums/charter"
+            element={
+              // Réservé au RP et au TI, les deux seuls rôles autorisés par
+              // PATCH /forums/charter côté community-path-service. Route déclarée avant
+              // /community/forums/:forumId : React Router v6 classe les segments statiques
+              // avant les segments dynamiques, mais la placer ici évite toute ambiguïté à la
+              // lecture, sur le même principe que le contrôleur backend (docs/routes.md).
+              <ProtectedRoute
+                allowedRoles={['responsable_pedagogique', 'technicien_informatique']}
+              >
+                <ForumCharterEditorPage />
               </ProtectedRoute>
             }
           />

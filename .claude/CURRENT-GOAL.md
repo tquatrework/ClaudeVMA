@@ -20,6 +20,22 @@ résolu sur chaque commentaire/sujet).
 
 Délégué le 2026-09-04 à `community-path-service`.
 
+**`community-path-service` mergé (PR #253), déployé, vérifié (route confirmée `401`, démarrage
+propre avec `PROFILE_SERVICE_URL`).** Nouveau `ProfileServiceClient` (résolution groupée, même
+mécanisme que `calendar-service`/`teacher-request-service`), champ `authorName:
+{firstName, lastName} | null` ajouté sur `GET /forums/:id/topics`,
+`GET /forums/:id/topics/:topicId` et `GET /forums/:id/topics/:topicId/comments` — couvre à la fois
+l'auteur d'un commentaire et l'auteur d'un sujet. Dégradation gracieuse si `profile-service`
+injoignable (`authorName: null`, jamais de blocage). 231 tests verts.
+
+**`front-developper` mergé (PR #254), déployé, site vérifié `200` (bundle confirmé à jour).**
+Affichage « Par {nom} » sur chaque commentaire (`ForumCommentList`) et chaque sujet
+(`ForumTopicList`), repli « Auteur inconnu » si `authorName` est `null` — jamais d'UUID affiché.
+107/107 tests verts (4 nouveaux), 0 régression.
+
+**Chantier affichage de l'auteur des commentaires clos.** Backend (PR #253) + front (PR #254)
+mergés, déployés, vérifiés.
+
 ---
 
 Structure en sujets (topics) des Forums, demandée le 2026-09-04, une fois le premier lot Forums

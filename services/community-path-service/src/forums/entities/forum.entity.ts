@@ -63,6 +63,25 @@ export class Forum {
   @Column({ nullable: true })
   imageMimeType: string | null;
 
+  /**
+   * Masquage total (RP uniquement) — arbitrage du 2026-09-04. Un forum caché
+   * n'apparaît plus dans GET /forums ni GET /forums/:id pour aucun rôle sauf
+   * le RP (masquage 404, pas de 403 — même discipline que la restriction par
+   * rôle). Non destructif : jamais de suppression de ligne, seul cet
+   * indicateur change — même principe déjà appliqué ailleurs dans ce projet
+   * (consentements, relations, validations de contenu). Aucune route de
+   * réouverture n'existe pour l'instant, mais le design reste réversible
+   * (flip du booléen) si le besoin apparaît plus tard.
+   */
+  @Column({ default: false })
+  isHidden: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  hiddenAt: Date | null;
+
+  @Column({ nullable: true })
+  hiddenByUserId: string | null;
+
   @OneToMany(() => ForumComment, (comment) => comment.forum, { cascade: true })
   comments: ForumComment[];
 

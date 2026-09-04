@@ -38,6 +38,16 @@ export function isRoleAllowedForForum(userRole: string, forum: Pick<Forum, 'allo
   return forum.allowedRoles.includes(userRole);
 }
 
+/**
+ * Un forum masqué (isHidden) est invisible à tout le monde sauf au RP —
+ * arbitrage du 2026-09-04. Volontairement plus strict que le bypass
+ * "restriction de rôle" ci-dessus (FORUM_ADMIN_BYPASS_ROLES, qui inclut aussi
+ * AF/TI) : seul le RP, créateur exclusif des forums, voit un forum caché.
+ */
+export function isForumHiddenFromRole(userRole: string, forum: Pick<Forum, 'isHidden'>): boolean {
+  return forum.isHidden === true && userRole !== UserRole.RESPONSABLE_PEDAGOGIQUE;
+}
+
 export interface CharterStatus {
   content: string;
   updatedAt: Date;
@@ -106,20 +116,42 @@ export class ForumsService {
    * pas autorisé sur un forum restreint ne le voit pas apparaître (jamais un
    * refus explicite qui révélerait son existence). `tags` filtre en plus sur
    * une correspondance partielle, insensible à la casse, sur le champ tags.
+   *
+   * `mine=true` (arbitrage du 2026-09-04, même convention que "mine=true"
+   * pour Quizz/Exercice dans content-catalog-service) : ne renvoie que les
+   * forums créés par l'appelant, tous statuts confondus — y compris ses
+   * propres forums cachés, seul moyen pour le RP de les retrouver puisqu'un
+   * forum caché est sinon invisible même pour lui dans la liste générale.
    */
-  async findAllForums(requesterRole: string, tags?: string[]): Promise<Forum[]> {
+  async findAllForums(
+    requesterId: string,
+    requesterRole: string,
+    tags?: string[],
+    mine?: boolean,
+  ): Promise<Forum[]> {
     const queryBuilder = this.forumRepository
       .createQueryBuilder('forum')
       .orderBy('forum.createdAt', 'DESC');
 
-    if (!FORUM_ADMIN_BYPASS_ROLES.includes(requesterRole)) {
-      queryBuilder.andWhere(
-        new Brackets((qb) => {
-          qb.where('forum.allowedRoles IS NULL').orWhere(':requesterRole = ANY(forum.allowedRoles)', {
-            requesterRole,
-          });
-        }),
-      );
+    if (mine) {
+      queryBuilder.andWhere('forum.createdById = :requesterId', { requesterId });
+    } else {
+      if (!FORUM_ADMIN_BYPASS_ROLES.includes(requesterRole)) {
+        queryBuilder.andWhere(
+          new Brackets((qb) => {
+            qb.where('forum.allowedRoles IS NULL').orWhere(':requesterRole = ANY(forum.allowedRoles)', {
+              requesterRole,
+            });
+          }),
+        );
+      }
+
+      // Un forum caché est invisible à tout le monde sauf au RP (2026-09-04)
+      // — plus strict que le bypass "restriction de rôle" ci-dessus, qui
+      // inclut aussi AF/TI : ceux-ci ne voient pas un forum caché non plus.
+      if (requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+        queryBuilder.andWhere('forum.isHidden = false');
+      }
     }
 
     const cleanedTags = (tags ?? []).map((tag) => tag.trim()).filter((tag) => tag.length > 0);
@@ -148,9 +180,10 @@ export class ForumsService {
 
   /**
    * Récupère un forum accessible par le rôle donné, ou lève NotFoundException
-   * si le forum n'existe pas ou si le rôle n'y est pas autorisé — dans les
-   * deux cas la même erreur, pour ne jamais révéler l'existence d'un forum
-   * auquel l'appelant n'a pas accès.
+   * si le forum n'existe pas, si le rôle n'y est pas autorisé, ou si le forum
+   * est caché pour ce rôle (2026-09-04) — dans tous les cas la même erreur,
+   * pour ne jamais révéler l'existence d'un forum auquel l'appelant n'a pas
+   * accès.
    */
   private async getAccessibleForumOrThrow(
     forumId: string,
@@ -158,10 +191,40 @@ export class ForumsService {
     relations: string[] = [],
   ): Promise<Forum> {
     const forum = await this.forumRepository.findOne({ where: { id: forumId }, relations });
-    if (!forum || !isRoleAllowedForForum(requesterRole, forum)) {
+    if (
+      !forum ||
+      !isRoleAllowedForForum(requesterRole, forum) ||
+      isForumHiddenFromRole(requesterRole, forum)
+    ) {
       throw new NotFoundException(`Forum ${forumId} introuvable`);
     }
     return forum;
+  }
+
+  /**
+   * Masque un forum pour tout le monde sauf le RP — arbitrage du 2026-09-04.
+   * Non destructif : pose un indicateur d'état, ne supprime jamais la ligne.
+   * Idempotent : masquer un forum déjà caché ne réécrit pas la trace
+   * d'origine (hiddenAt/hiddenByUserId), simplement renvoyé tel quel.
+   */
+  async hideForum(forumId: string, actorId: string, actorRole: string): Promise<Forum> {
+    if (actorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Seul un responsable pédagogique peut masquer un forum');
+    }
+
+    const forum = await this.forumRepository.findOne({ where: { id: forumId } });
+    if (!forum) {
+      throw new NotFoundException(`Forum ${forumId} introuvable`);
+    }
+
+    if (forum.isHidden) {
+      return forum;
+    }
+
+    forum.isHidden = true;
+    forum.hiddenAt = new Date();
+    forum.hiddenByUserId = actorId;
+    return this.forumRepository.save(forum);
   }
 
   // ───────────────────────────────────────────────────────────────────────

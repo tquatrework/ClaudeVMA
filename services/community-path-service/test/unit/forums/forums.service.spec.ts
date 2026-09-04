@@ -14,7 +14,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { ForumsService, isRoleAllowedForForum } from '../../../src/forums/forums.service';
+import { ForumsService, isRoleAllowedForForum, isForumHiddenFromRole } from '../../../src/forums/forums.service';
 import { Forum } from '../../../src/forums/entities/forum.entity';
 import { ForumComment } from '../../../src/forums/entities/forum-comment.entity';
 import { ForumExclusion } from '../../../src/forums/entities/forum-exclusion.entity';
@@ -67,6 +67,9 @@ function buildSampleForum(overrides: Partial<Forum> = {}): Forum {
     createdByRole: UserRole.RESPONSABLE_PEDAGOGIQUE,
     imageFilename: null,
     imageMimeType: null,
+    isHidden: false,
+    hiddenAt: null,
+    hiddenByUserId: null,
     comments: [],
     exclusions: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -183,44 +186,57 @@ describe('ForumsService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('findAllForums()', () => {
-    it('le RP voit tous les forums, sans filtre de rôle', async () => {
+    it('le RP voit tous les forums, sans filtre de rôle ni de masquage', async () => {
       const qb = buildQueryBuilderMock([buildSampleForum()]);
       forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await forumsService.findAllForums(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await forumsService.findAllForums(RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
 
-      // Seul le tri est appliqué, aucune clause de restriction de rôle.
+      // Seul le tri est appliqué, aucune clause de restriction de rôle ni de masquage.
       expect(qb.andWhere).not.toHaveBeenCalled();
     });
 
-    it("l'administrateur financier et le TI voient aussi tous les forums (bypass admin)", async () => {
+    it("l'administrateur financier et le TI voient tous les forums non cachés (bypass admin de la restriction de rôle, mais pas du masquage)", async () => {
       const qbAf = buildQueryBuilderMock([]);
       forumRepo.createQueryBuilder.mockReturnValue(qbAf);
-      await forumsService.findAllForums(UserRole.ADMINISTRATEUR_FINANCIER);
-      expect(qbAf.andWhere).not.toHaveBeenCalled();
+      await forumsService.findAllForums(AP_ID, UserRole.ADMINISTRATEUR_FINANCIER);
+      // Pas de clause de restriction de rôle (bypass), mais une clause de masquage (isHidden = false).
+      expect(qbAf.andWhere).toHaveBeenCalledTimes(1);
+      expect(qbAf.andWhere).toHaveBeenCalledWith('forum.isHidden = false');
 
       const qbTi = buildQueryBuilderMock([]);
       forumRepo.createQueryBuilder.mockReturnValue(qbTi);
-      await forumsService.findAllForums(UserRole.TECHNICIEN_INFORMATIQUE);
-      expect(qbTi.andWhere).not.toHaveBeenCalled();
+      await forumsService.findAllForums(AP_ID, UserRole.TECHNICIEN_INFORMATIQUE);
+      expect(qbTi.andWhere).toHaveBeenCalledTimes(1);
+      expect(qbTi.andWhere).toHaveBeenCalledWith('forum.isHidden = false');
     });
 
-    it('un élève déclenche une clause de restriction de rôle', async () => {
+    it('un élève déclenche une clause de restriction de rôle et une clause de masquage', async () => {
       const qb = buildQueryBuilderMock([buildSampleForum()]);
       forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await forumsService.findAllForums(UserRole.ELEVE);
+      await forumsService.findAllForums(ELEVE_ID, UserRole.ELEVE);
 
-      expect(qb.andWhere).toHaveBeenCalled();
+      expect(qb.andWhere).toHaveBeenCalledTimes(2);
     });
 
     it('applique un filtre tags supplémentaire quand fourni', async () => {
       const qb = buildQueryBuilderMock([]);
       forumRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await forumsService.findAllForums(UserRole.RESPONSABLE_PEDAGOGIQUE, ['algèbre', 'trigonométrie']);
+      await forumsService.findAllForums(RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE, ['algèbre', 'trigonométrie']);
 
-      // Une clause pour les tags, en plus (le RP n'a pas de clause de rôle).
+      // Une clause pour les tags, en plus (le RP n'a ni clause de rôle ni clause de masquage).
+      expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    });
+
+    it('mine=true filtre par createdById, sans clause de rôle ni de masquage (tous statuts confondus)', async () => {
+      const qb = buildQueryBuilderMock([buildSampleForum({ isHidden: true })]);
+      forumRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await forumsService.findAllForums(RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE, undefined, true);
+
+      expect(qb.andWhere).toHaveBeenCalledWith('forum.createdById = :requesterId', { requesterId: RP_ID });
       expect(qb.andWhere).toHaveBeenCalledTimes(1);
     });
   });
@@ -259,6 +275,75 @@ describe('ForumsService', () => {
       const result = await forumsService.getForum(FORUM_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
 
       expect(result.id).toBe(FORUM_ID);
+    });
+
+    it('lève NotFoundException (masquage) sur un forum caché pour un élève', async () => {
+      const forum = buildSampleForum({ isHidden: true });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(forumsService.getForum(FORUM_ID, UserRole.ELEVE)).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève NotFoundException (masquage) sur un forum caché pour l'administrateur financier", async () => {
+      const forum = buildSampleForum({ isHidden: true });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(
+        forumsService.getForum(FORUM_ID, UserRole.ADMINISTRATEUR_FINANCIER),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('le RP voit le détail même sur un forum caché', async () => {
+      const forum = buildSampleForum({ isHidden: true });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      const result = await forumsService.getForum(FORUM_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.id).toBe(FORUM_ID);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // hideForum()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('hideForum()', () => {
+    it('le RP peut masquer un forum', async () => {
+      const forum = buildSampleForum({ isHidden: false });
+      forumRepo.findOne.mockResolvedValue(forum);
+      forumRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.hideForum(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.isHidden).toBe(true);
+      expect(result.hiddenByUserId).toBe(RP_ID);
+      expect(result.hiddenAt).toBeInstanceOf(Date);
+      expect(forumRepo.save).toHaveBeenCalled();
+    });
+
+    it('est idempotent : masquer un forum déjà caché ne réécrit pas la trace et ne sauvegarde pas', async () => {
+      const hiddenAt = new Date('2026-01-01T00:00:00Z');
+      const forum = buildSampleForum({ isHidden: true, hiddenAt, hiddenByUserId: RP_ID });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      const result = await forumsService.hideForum(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.hiddenAt).toBe(hiddenAt);
+      expect(forumRepo.save).not.toHaveBeenCalled();
+    });
+
+    it("lève ForbiddenException si l'appelant n'est pas RP", async () => {
+      await expect(
+        forumsService.hideForum(FORUM_ID, AP_ID, UserRole.ANIMATEUR_PEDAGOGIQUE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève NotFoundException si le forum est introuvable', async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.hideForum(FORUM_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -347,6 +432,15 @@ describe('ForumsService', () => {
 
     it("lève NotFoundException (masquage, pas 403) si le rôle n'est pas autorisé sur ce forum restreint", async () => {
       const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR], exclusions: [] });
+      forumRepo.findOne.mockResolvedValue(forum);
+
+      await expect(
+        forumsService.addComment(FORUM_ID, { content: 'Test' }, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("lève NotFoundException (masquage) si le forum est caché et l'appelant n'est pas RP", async () => {
+      const forum = buildSampleForum({ isHidden: true, exclusions: [] });
       forumRepo.findOne.mockResolvedValue(forum);
 
       await expect(
@@ -632,6 +726,27 @@ describe('ForumsService', () => {
       expect(isRoleAllowedForForum(UserRole.RESPONSABLE_PEDAGOGIQUE, restricted)).toBe(true);
       expect(isRoleAllowedForForum(UserRole.ADMINISTRATEUR_FINANCIER, restricted)).toBe(true);
       expect(isRoleAllowedForForum(UserRole.TECHNICIEN_INFORMATIQUE, restricted)).toBe(true);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isForumHiddenFromRole() — helper
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('isForumHiddenFromRole()', () => {
+    it("un forum non caché n'est masqué pour personne", () => {
+      expect(isForumHiddenFromRole(UserRole.ELEVE, { isHidden: false })).toBe(false);
+      expect(isForumHiddenFromRole(UserRole.RESPONSABLE_PEDAGOGIQUE, { isHidden: false })).toBe(false);
+    });
+
+    it('un forum caché est masqué pour tous les rôles non-RP, y compris AF/TI', () => {
+      expect(isForumHiddenFromRole(UserRole.ELEVE, { isHidden: true })).toBe(true);
+      expect(isForumHiddenFromRole(UserRole.ADMINISTRATEUR_FINANCIER, { isHidden: true })).toBe(true);
+      expect(isForumHiddenFromRole(UserRole.TECHNICIEN_INFORMATIQUE, { isHidden: true })).toBe(true);
+    });
+
+    it('un forum caché reste visible pour le RP', () => {
+      expect(isForumHiddenFromRole(UserRole.RESPONSABLE_PEDAGOGIQUE, { isHidden: true })).toBe(false);
     });
   });
 });

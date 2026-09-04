@@ -37,6 +37,17 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
     ],
   },
   {
+    // Fusion « Contacts » + « Messages » (2026-09-04, demande explicite
+    // utilisateur) : une seule entrée de menu du haut. L'envoi de message se
+    // fait désormais uniquement depuis l'écran Contacts (bouton « Écrire »
+    // sur une fiche contact, `ContactRow` → `/messages` avec le contact
+    // présélectionné) — il n'y a plus d'entrée « Messagerie » séparée.
+    // `allowedRoles` aligné sur `ROUTE_ACCESS_MAP['/contacts']`
+    // (`routeAccessMap.ts`), qui autorisait déjà les 7 rôles avant cette
+    // fusion : administrateur_financier et technicien_informatique avaient
+    // le droit d'accéder à `/contacts` côté route mais n'avaient jamais de
+    // lien pour y accéder depuis le menu — corrigé au passage (règle du
+    // projet : ne jamais laisser un rôle avec accès sans point d'entrée).
     id: 'contacts',
     label: 'Contacts',
     path: '/contacts',
@@ -46,19 +57,8 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
       'formateur',
       'responsable_pedagogique',
       'animateur_pedagogique',
-    ],
-  },
-  {
-    id: 'messages',
-    label: 'Messages',
-    path: '/messages',
-    allowedRoles: [
-      'eleve',
-      'parent_financeur',
-      'formateur',
-      'responsable_pedagogique',
-      'animateur_pedagogique',
       'technicien_informatique',
+      'administrateur_financier',
     ],
   },
   {
@@ -83,6 +83,19 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
       'administrateur_financier',
       'technicien_informatique',
     ],
+  },
+  {
+    // Ajouté au menu du haut le 2026-09-04 (demande explicite utilisateur),
+    // à droite du menu, visible à TOUS les rôles connectés — pas
+    // `allowedRoles` du tout, même convention que « Accueil » ci-dessus.
+    // Auparavant réservé au rail gauche du RP (groupe « Contenu »,
+    // reconstruction du 2026-09-02) et, séparément, au rail Communauté de
+    // l'élève et de l'AP. community-path-service est réellement déployé
+    // (`GET /api/v1/forums` répond 401 sans jeton, pas 404 — vérifié le
+    // 2026-09-04) : ce n'est pas un lien mort.
+    id: 'forums',
+    label: 'Forums',
+    path: '/community/forums',
   },
 ]
 
@@ -202,9 +215,13 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       ],
     },
     {
+      // 'Forums' retiré de ce groupe le 2026-09-04 : l'entrée vit désormais
+      // dans le menu du haut (TOP_NAV_CONFIG, id 'forums'), visible à tous
+      // les rôles connectés — la dupliquer ici serait un second lien vers la
+      // même destination, contraire à la règle de non-duplication de la
+      // navigation.
       groupLabel: 'Communauté',
       items: [
-        { label: 'Forums', path: '/community/forums', icon: '💬' },
         { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
         { label: 'Jeux', path: '/community/games', icon: '🎮' },
       ],
@@ -331,7 +348,11 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
         { label: 'Tutos/Vidéos', path: '/content/tutorials', icon: '🎬' },
-        { label: 'Forums', path: '/community/forums', icon: '💬' },
+        // 'Forums' retiré de ce groupe le 2026-09-04 (demande explicite
+        // utilisateur, reconstruction du menu du haut) : accessible à tous
+        // les rôles depuis TOP_NAV_CONFIG (id 'forums'), plus seulement
+        // depuis ce rail — retirer ici évite une double entrée vers la même
+        // destination.
         { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
         // 'Jeux' — route déjà réelle (`GamesPage`, ressources externes
         // statiques), jusqu'ici réservée au rôle élève. Ouverte au RP le
@@ -387,9 +408,11 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       ],
     },
     {
+      // 'Forums' retiré de ce groupe le 2026-09-04, même motif que pour le
+      // RP et l'élève ci-dessus : désormais dans le menu du haut, visible à
+      // tous.
       groupLabel: 'Communauté',
       items: [
-        { label: 'Forums', path: '/community/forums', icon: '💬' },
         { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
       ],
     },

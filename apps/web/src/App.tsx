@@ -851,11 +851,22 @@ export default function App() {
           />
 
           {/* ── Phase 14 — Community & parcours ─────────────── */}
+          {/* Forums ouverts à tous les rôles le 2026-09-04 (menu du haut,
+              demande explicite utilisateur) — voir routeAccessMap.ts pour le
+              même élargissement côté canAccess(). */}
           <Route
             path="/community/forums"
             element={
               <ProtectedRoute
-                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
               >
                 <ForumCatalogPage />
               </ProtectedRoute>
@@ -865,7 +876,15 @@ export default function App() {
             path="/community/forums/:forumId"
             element={
               <ProtectedRoute
-                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
               >
                 <ForumDetailPage />
               </ProtectedRoute>

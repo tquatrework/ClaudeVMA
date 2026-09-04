@@ -228,10 +228,22 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     ],
   },
 
-  // Community
+  // Community — Forums ouvert à tous les rôles le 2026-09-04 (menu du haut,
+  // demande explicite utilisateur) : l'entrée est désormais visible à tout
+  // connecté, l'accès à la route doit suivre pour éviter un lien menant à
+  // /forbidden (règle « Filtrage UI »). community-path-service est déployé
+  // et répond 401 sans jeton (pas 404) — vérifié le 2026-09-04.
   {
     prefix: '/community/forums',
-    roles: ['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique'],
+    roles: [
+      'eleve',
+      'parent_financeur',
+      'formateur',
+      'responsable_pedagogique',
+      'animateur_pedagogique',
+      'technicien_informatique',
+      'administrateur_financier',
+    ],
   },
   {
     prefix: '/community/paths',

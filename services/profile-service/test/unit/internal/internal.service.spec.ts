@@ -84,6 +84,7 @@ describe('InternalService', () => {
 
     administrativeProfileLookup = {
       findNamesByUserIds: jest.fn().mockResolvedValue(new Map()),
+      searchByName: jest.fn().mockResolvedValue([]),
     };
 
     identityAccessClient = {
@@ -701,6 +702,71 @@ describe('InternalService', () => {
       relationsService.getTeachersByStudent.mockRejectedValue(new Error('boom'));
 
       await expect(service.getTeachersByStudent('student-uuid')).rejects.toThrow('boom');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // searchByName — GET /internal/profiles/search-by-name
+  // ---------------------------------------------------------------------------
+  describe('searchByName', () => {
+    it('compose profile-service (nom) et identity-access-service (loginIdentifier)', async () => {
+      administrativeProfileLookup.searchByName.mockResolvedValue([
+        { userId: 'camille-uuid', firstName: 'Camille', lastName: 'Durand' },
+      ]);
+      identityAccessClient.findAccountByUserId.mockResolvedValue({
+        userId: 'camille-uuid',
+        loginIdentifier: 'camille.durand',
+        role: 'formateur',
+      });
+
+      const result = await service.searchByName('durand');
+
+      expect(administrativeProfileLookup.searchByName).toHaveBeenCalledWith('durand', 20);
+      expect(result).toEqual({
+        results: [
+          {
+            userId: 'camille-uuid',
+            firstName: 'Camille',
+            lastName: 'Durand',
+            loginIdentifier: 'camille.durand',
+          },
+        ],
+      });
+    });
+
+    /**
+     * Arbitrage du 2026-09-04, point 10 : « tous les noms ne seront pas
+     * connus » — une recherche sans résultat est un cas normal, pas une
+     * anomalie.
+     */
+    it('renvoie une liste vide quand aucun profil ne correspond', async () => {
+      administrativeProfileLookup.searchByName.mockResolvedValue([]);
+
+      const result = await service.searchByName('inconnu');
+
+      expect(result).toEqual({ results: [] });
+      expect(identityAccessClient.findAccountByUserId).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Dégradation gracieuse par résultat : un userId dont le loginIdentifier
+     * ne peut pas être résolu est écarté, sans faire échouer les autres.
+     */
+    it('écarte un résultat dont le loginIdentifier ne peut pas être résolu, sans faire échouer les autres', async () => {
+      administrativeProfileLookup.searchByName.mockResolvedValue([
+        { userId: 'ok-uuid', firstName: 'Marie', lastName: 'Dupont' },
+        { userId: 'ko-uuid', firstName: 'Jean', lastName: 'Dupond' },
+      ]);
+      identityAccessClient.findAccountByUserId.mockImplementation(async (userId: string) => {
+        if (userId === 'ko-uuid') throw new Error('identity-access-service unreachable');
+        return { userId, loginIdentifier: 'marie.dupont', role: 'eleve' };
+      });
+
+      const result = await service.searchByName('dup');
+
+      expect(result.results).toEqual([
+        { userId: 'ok-uuid', firstName: 'Marie', lastName: 'Dupont', loginIdentifier: 'marie.dupont' },
+      ]);
     });
   });
 });

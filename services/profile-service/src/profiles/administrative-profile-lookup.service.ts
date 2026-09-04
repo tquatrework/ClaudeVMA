@@ -59,4 +59,33 @@ export class AdministrativeProfileLookupService {
       ]),
     );
   }
+
+  /**
+   * Recherche insensible à la casse sur `firstName`/`lastName`, TOUS RÔLES
+   * CONFONDUS — support de `GET /internal/profiles/search-by-name`
+   * (arbitrage du 2026-09-04, `docs/architecture/contacts-messagerie.md`,
+   * point 11 : recherche composite pour la fonctionnalité Contacts de
+   * `communication-service`).
+   *
+   * Distincte de `RoleDirectoryService` (`GET /profiles/directory`) : cette
+   * dernière est réservée aux rôles administratifs et filtrée par rôle ; ici
+   * n'importe quel utilisateur authentifié doit pouvoir retrouver n'importe
+   * quel autre par son nom, sans restriction de rôle sur l'appelant ni sur la
+   * cible — postures de sécurité différentes, routes distinctes.
+   *
+   * Plafonnée (`limit`) : un plafond non déclaré serait un plafond caché
+   * (règle du 2026-08-10/2026-08-12) — la route appelante déclare la sienne.
+   */
+  async searchByName(query: string, limit: number): Promise<AdministrativeProfile[]> {
+    return this.adminRepo
+      .createQueryBuilder('administrative')
+      .where('administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q', {
+        q: `%${query}%`,
+      })
+      .orderBy('administrative.lastName', 'ASC', 'NULLS LAST')
+      .addOrderBy('administrative.firstName', 'ASC', 'NULLS LAST')
+      .addOrderBy('administrative.userId', 'ASC')
+      .limit(limit)
+      .getMany();
+  }
 }

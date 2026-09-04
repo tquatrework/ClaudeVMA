@@ -52,6 +52,20 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   INTERNAL_SECRET: string;
+
+  /**
+   * URL de connexion au flux Redis partagé `visiomath:events` (arbitrage du
+   * 2026-08-14). VOLONTAIREMENT OPTIONNELLE, à la différence de
+   * `INTERNAL_SECRET` : les environnements de test (unitaires, e2e) n'ont pas
+   * de Redis et ne doivent pas être bloqués par son absence — `EventsService`
+   * continue d'écrire l'outbox `domain_events` sans elle, seule la
+   * publication réelle sur le bus reste en attente (voir
+   * `EventPublisherService`).
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  REDIS_URL?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

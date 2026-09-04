@@ -478,7 +478,87 @@ export class InternalService {
       teacherUserIds: links.map((link) => link.teacherId),
     };
   }
+
+  /**
+   * `GET /internal/profiles/search-by-name` — recherche composite par nom
+   * pour la fonctionnalité Contacts de `communication-service` (arbitrage du
+   * 2026-09-04, `docs/architecture/contacts-messagerie.md`, points 2 et 11).
+   *
+   * OUVERTE À TOUT UTILISATEUR CONNECTÉ, SANS RESTRICTION DE RÔLE SUR
+   * L'APPELANT NI SUR LA CIBLE — à la différence de l'annuaire
+   * `GET /profiles/directory/by-role`, réservé aux rôles administratifs.
+   * `communication-service` appelle cette route pour le compte de
+   * N'IMPORTE QUEL utilisateur cherchant N'IMPORTE QUEL autre utilisateur ;
+   * l'autorisation réelle de la route est déjà tranchée en amont par
+   * `InternalGuard` (X-Internal-Secret), pas par un rôle transporté ici.
+   *
+   * COMPOSITION ENTRE DEUX SERVICES, PAS DE DUPLICATION : le nom
+   * (`firstName`/`lastName`) appartient à `profile-service`, l'identifiant de
+   * connexion (`loginIdentifier`) à `identity-access-service` (arbitrage du
+   * 2026-08-06). Même mécanisme dans l'esprit que `GET /profiles/directory`,
+   * qui compose déjà les deux — ici sans restriction de rôle.
+   *
+   * ZÉRO RÉSULTAT EST UN CAS NORMAL, PAS UNE ANOMALIE : l'utilisateur qui a
+   * demandé ce chantier a explicitement prévenu que « tous les noms ne
+   * seront pas connus » (arbitrage du 2026-09-04, point 10) — aucune erreur
+   * n'est levée sur une recherche infructueuse.
+   *
+   * DÉGRADATION GRACIEUSE PAR RÉSULTAT : un profil administratif dont le
+   * `loginIdentifier` ne peut pas être résolu auprès de
+   * `identity-access-service` (compte supprimé côté identity-access-service,
+   * panne réseau ponctuelle) est SIMPLEMENT ABSENT de la réponse plutôt que
+   * de faire échouer toute la recherche — même politique que
+   * `resolveDisplayNames` ci-dessus : un identifiant douteux ne prive pas
+   * l'appelant des autres résultats.
+   */
+  async searchByName(q: string): Promise<{
+    results: { userId: string; firstName: string | null; lastName: string | null; loginIdentifier: string }[];
+  }> {
+    const profiles = await this.administrativeProfileLookup.searchByName(q, SEARCH_BY_NAME_LIMIT);
+    if (profiles.length === 0) {
+      return { results: [] };
+    }
+
+    const accounts = await Promise.allSettled(
+      profiles.map((profile) => this.identityAccessClient.findAccountByUserId(profile.userId)),
+    );
+
+    const results: {
+      userId: string;
+      firstName: string | null;
+      lastName: string | null;
+      loginIdentifier: string;
+    }[] = [];
+
+    profiles.forEach((profile, index) => {
+      const outcome = accounts[index];
+      if (outcome.status === 'rejected') {
+        this.logger.warn(
+          `Recherche par nom : impossible de résoudre le loginIdentifier de userId=${profile.userId} ` +
+            `auprès de identity-access-service (${outcome.reason}). Résultat écarté plutôt que de ` +
+            'faire échouer toute la recherche.',
+        );
+        return;
+      }
+      results.push({
+        userId: profile.userId,
+        firstName: profile.firstName ?? null,
+        lastName: profile.lastName ?? null,
+        loginIdentifier: outcome.value.loginIdentifier,
+      });
+    });
+
+    return { results };
+  }
 }
+
+/**
+ * Plafond de résultats de `GET /internal/profiles/search-by-name` — aucune
+ * pagination stricte n'est demandée pour cet usage (arbitrage du
+ * 2026-09-04), mais un plafond non déclaré serait un plafond caché (règle du
+ * 2026-08-10/2026-08-12) : la route doit rester bornée dès l'origine.
+ */
+const SEARCH_BY_NAME_LIMIT = 20;
 
 /**
  * Acteur synthétique utilisé UNIQUEMENT pour satisfaire la signature `Actor`

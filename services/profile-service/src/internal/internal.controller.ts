@@ -26,6 +26,7 @@ import { CreateTeacherStudentRelationDto } from './dto/create-teacher-student-re
 import { EnsureTeacherValidationsDto } from './dto/ensure-teacher-validations.dto';
 import { LinkCoordinatorDto } from './dto/link-coordinator.dto';
 import { ResolveRelationQueryDto } from './dto/resolve-relation.query.dto';
+import { SearchByNameQueryDto } from './dto/search-by-name.query.dto';
 
 /**
  * System-to-system routes consumed by orchestration-service during account
@@ -223,6 +224,48 @@ export class InternalController {
   @Post('profiles/display-names')
   resolveDisplayNames(@Body() dto: ResolveDisplayNamesDto): Promise<DisplayNameBatch> {
     return this.internalService.resolveDisplayNames(dto.userIds);
+  }
+
+  /**
+   * `GET /internal/profiles/search-by-name?q=`
+   *
+   * RECHERCHE PAR NOM pour la fonctionnalité Contacts de
+   * `communication-service` — arbitrage du 2026-09-04
+   * (`docs/architecture/contacts-messagerie.md`, points 2 et 11).
+   *
+   * OUVERTE À TOUT UTILISATEUR AUTHENTIFIÉ, SANS RESTRICTION DE RÔLE, à la
+   * différence de `GET /profiles/directory/by-role` (réservée aux rôles
+   * administratifs) : `communication-service` l'appelle pour le compte de
+   * n'importe quel utilisateur connecté cherchant n'importe quel autre.
+   * L'autorisation réelle de cette route est celle d'`InternalGuard`
+   * (X-Internal-Secret), pas un rôle transporté ici.
+   *
+   * Insensible à la casse sur prénom/nom, tous rôles confondus, plafonnée à
+   * 20 résultats (plafond déclaré, jamais caché). Un résultat vide ou
+   * unique est un cas normal — les noms ne sont pas tous connus.
+   *
+   * Jamais exposée par `api-gateway`.
+   */
+  @ApiOperation({
+    summary: 'Rechercher des personnes par prénom/nom (interservices)',
+    description:
+      "Recherche insensible à la casse sur prénom/nom, tous rôles confondus, plafonnée à 20 " +
+      'résultats. Ouverte à tout appel interservices authentifié par X-Internal-Secret, sans ' +
+      "restriction de rôle sur l'appelant ni sur la cible. Compose profile-service " +
+      '(firstName/lastName) et identity-access-service (loginIdentifier). Un résultat vide ou ' +
+      "unique est un cas normal, pas une anomalie. Jamais exposée par api-gateway.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: '{results: [{userId, firstName, lastName, loginIdentifier}]} — liste vide possible.',
+  })
+  @ApiResponse({ status: 400, description: '`q` absent, vide, ou au-delà de 100 caractères.' })
+  @ApiResponse({ status: 401, description: 'X-Internal-Secret absent ou invalide.' })
+  @Get('profiles/search-by-name')
+  searchByName(
+    @Query() query: SearchByNameQueryDto,
+  ): Promise<Awaited<ReturnType<InternalService['searchByName']>>> {
+    return this.internalService.searchByName(query.q);
   }
 
   /**

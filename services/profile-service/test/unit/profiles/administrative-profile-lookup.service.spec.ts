@@ -66,4 +66,51 @@ describe('AdministrativeProfileLookupService', () => {
       expect(result.get('user-1')).toEqual({ firstName: null, lastName: null });
     });
   });
+
+  /**
+   * `searchByName` — support de `GET /internal/profiles/search-by-name`
+   * (arbitrage du 2026-09-04, `docs/architecture/contacts-messagerie.md`,
+   * point 11).
+   */
+  describe('searchByName', () => {
+    let queryBuilder: any;
+
+    beforeEach(() => {
+      queryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      };
+      adminRepo.createQueryBuilder = jest.fn().mockReturnValue(queryBuilder);
+    });
+
+    it('recherche par ILIKE sur firstName OU lastName, avec le plafond transmis', async () => {
+      await service.searchByName('durand', 20);
+
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        'administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q',
+        { q: '%durand%' },
+      );
+      expect(queryBuilder.limit).toHaveBeenCalledWith(20);
+    });
+
+    it('renvoie les profils trouvés tels quels', async () => {
+      const profiles = [{ userId: 'user-1', firstName: 'Camille', lastName: 'Durand' }];
+      queryBuilder.getMany.mockResolvedValue(profiles);
+
+      const result = await service.searchByName('durand', 20);
+
+      expect(result).toBe(profiles);
+    });
+
+    it("renvoie une liste vide quand aucun profil ne correspond — cas normal, pas une erreur", async () => {
+      queryBuilder.getMany.mockResolvedValue([]);
+
+      const result = await service.searchByName('inconnu', 20);
+
+      expect(result).toEqual([]);
+    });
+  });
 });

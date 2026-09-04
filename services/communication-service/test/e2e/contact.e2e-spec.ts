@@ -41,10 +41,13 @@ const profileServiceClientStub: Partial<ProfileServiceClient> = {
   getTeachers: async () => [],
 };
 
+// Real contract confirmed against the live identity-access-service stack (2026-09-04,
+// docs/routes.md): the success response is `{userId, role}` — no `loginIdentifier` field.
+// The stub deliberately omits it so a caller reading `response.loginIdentifier` fails here too.
 const identityAccessClientStub: Partial<IdentityAccessClient> = {
   findByLoginIdentifier: async (loginIdentifier: string) => {
     if (loginIdentifier === 'teacher2.login') {
-      return { userId: IDS.teacher2, loginIdentifier, role: 'formateur' };
+      return { userId: IDS.teacher2, role: 'formateur' };
     }
     return null;
   },

@@ -53,7 +53,7 @@ export class ContactRequestService {
       userId: account.userId,
       firstName: displayName?.firstName ?? null,
       lastName: displayName?.lastName ?? null,
-      loginIdentifier: account.loginIdentifier,
+      loginIdentifier,
     };
   }
 

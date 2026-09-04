@@ -21,6 +21,28 @@ gérée par sa propre route existante), ouverte à **tout RP**, pas seulement le
 
 Délégué le 2026-09-04 à `community-path-service`.
 
+**`community-path-service` mergé (PR #239), déployé, vérifié en HTTP direct.** `PATCH /forums/:id`
+(rôle RP dans son ensemble, pas seulement le créateur — même principe que le masquage), tous les
+champs de métadonnées optionnels (`title`/`description`/`level`/`difficulty`/`theme`/`competences`/
+`tags`/`allowedRoles`, image hors périmètre), `allowedRoles: []` explicite normalisé en `null`
+(ouvert à tous). 192 tests verts. Route mappée dans les logs, `401` (pas `404`) vérifié en HTTP
+direct.
+
+**`front-developper` mergé (PR #240), déployé, site vérifié `200` (y compris `/community/forums`,
+bundle contient `updateForum`/`allowedRoles` confirmé).** `ForumCreateForm` généralisé en mode
+édition (pré-remplissage, bascule `POST`→`PATCH`), bouton "Modifier le forum" dans le panneau de
+modération RP de `ForumDetailPage`. **Correctif en cours de route** : le premier rapport de l'agent
+affirmait à tort qu'aucun test n'existait pour le domaine Forums (cherché dans `apps/web/src` au
+lieu d'`apps/web/test`, où vivent réellement les tests de ce projet) — renvoyé corriger avant merge.
+Deuxième passe : suite Forums existante relancée (55/55 verts, mode création non régressé), 4 tests
+ajoutés pour le mode édition, suite complète du projet comparée par `git stash` (51 échecs
+pré-existants inchangés, 2151 tests verts par ailleurs). Mergé et déployé sur confirmation explicite
+de l'utilisateur ("vas jusqu'au merge inclus").
+
+**Chantier édition des métadonnées d'un forum clos.** Point 1 (édition) et le masquage (réponse
+partielle du même point) sont désormais tous deux livrés — seul le point 2 (écran de saisie du
+texte de la charte) reste ouvert, sciemment non traité en attendant le texte réel de l'utilisateur.
+
 ---
 
 Développement réel des Forums, demandé le 2026-09-04 (suite directe du chantier menu ci-dessous,

@@ -11,6 +11,9 @@
  * - Publication d'un commentaire
  * - Bouton de suppression de commentaire visible seulement pour le RP
  * - Panneau d'image et lien de modération visibles seulement pour le RP
+ * - Édition des métadonnées d'un forum par le RP (PATCH /forums/:id, ajouté le 2026-09-04) :
+ *   bouton "Modifier le forum" réservé au RP, formulaire pré-rempli, appel `updateForum`,
+ *   forum affiché mis à jour après succès
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -31,6 +34,7 @@ import {
   deleteForumComment,
   fetchForumImageConstraints,
   hideForum,
+  updateForum,
 } from '../../../src/api/forums'
 import ForumDetailPage from '../../../src/pages/ForumDetailPage'
 import type { Forum, ForumComment } from '../../../src/types/forum'
@@ -44,6 +48,7 @@ const mockCreateForumComment = vi.mocked(createForumComment)
 const mockDeleteForumComment = vi.mocked(deleteForumComment)
 const mockFetchForumImageConstraints = vi.mocked(fetchForumImageConstraints)
 const mockHideForum = vi.mocked(hideForum)
+const mockUpdateForum = vi.mocked(updateForum)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -325,5 +330,84 @@ describe('ForumDetailPage', () => {
       expect(screen.getByText('Caché')).toBeDefined()
     })
     expect(screen.queryByRole('button', { name: /^cacher le forum$/i })).toBeNull()
+  })
+
+  it("n'affiche pas le bouton 'Modifier le forum' pour un élève", async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Forum Trigonométrie')).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: /modifier le forum/i })).toBeNull()
+  })
+
+  it("le RP peut ouvrir le formulaire d'édition, pré-rempli avec les valeurs actuelles", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /modifier le forum/i }))
+
+    expect(screen.getByLabelText(/titre/i)).toHaveValue('Forum Trigonométrie')
+    expect(screen.getByLabelText(/description/i)).toHaveValue(
+      'Discussion autour des fonctions trigonométriques.',
+    )
+    expect(
+      screen.getByRole('button', { name: /enregistrer les modifications/i }),
+    ).toBeDefined()
+  })
+
+  it('le RP édite le forum : appelle PATCH /forums/:id et affiche la réponse du serveur', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockUpdateForum.mockResolvedValue({
+      ...FORUM,
+      title: 'Forum Trigonométrie (mis à jour)',
+      description: 'Nouvelle description.',
+    })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /modifier le forum/i }))
+
+    const titleInput = screen.getByLabelText(/titre/i)
+    await userEvent.clear(titleInput)
+    await userEvent.type(titleInput, 'Forum Trigonométrie (mis à jour)')
+
+    await userEvent.click(screen.getByRole('button', { name: /enregistrer les modifications/i }))
+
+    await waitFor(() => {
+      expect(mockUpdateForum).toHaveBeenCalledWith(
+        'forum-1',
+        expect.objectContaining({ title: 'Forum Trigonométrie (mis à jour)' }),
+      )
+    })
+
+    // La page réaffiche la réponse reçue du serveur, jamais le corps envoyé (règle du 2026-08-10).
+    await waitFor(() => {
+      expect(screen.getByText('Forum Trigonométrie (mis à jour)')).toBeDefined()
+    })
+    expect(screen.getByText('Nouvelle description.')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /enregistrer les modifications/i })).toBeNull()
+  })
+
+  it("le formulaire d'édition se ferme sans appel API si le RP annule", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /modifier le forum/i }))
+    await userEvent.click(screen.getByRole('button', { name: /annuler/i }))
+
+    expect(mockUpdateForum).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /modifier le forum/i })).toBeDefined()
   })
 })

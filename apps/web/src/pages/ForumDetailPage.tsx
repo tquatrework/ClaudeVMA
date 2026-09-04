@@ -17,9 +17,11 @@
  *   POST   /forums/:id/image                (RP uniquement)
  *   POST   /forums/:id/hide                 (RP uniquement — masquage définitif, complément du
  *                                             2026-09-04)
+ *   PATCH  /forums/:id                      (RP uniquement — édition des métadonnées, complément
+ *                                             du 2026-09-04)
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
@@ -30,6 +32,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { ForumThumbnail } from '../components/community/ForumThumbnail'
 import { ForumImageUploader } from '../components/community/ForumImageUploader'
+import { ForumCreateForm } from '../components/community/ForumCreateForm'
 import { ForumCharterGate } from '../components/community/ForumCharterGate'
 import { ForumCommentForm } from '../components/community/ForumCommentForm'
 import { ForumCommentList } from '../components/community/ForumCommentList'
@@ -60,6 +63,7 @@ export default function ForumDetailPage() {
     deleteComment,
   } = useForumComments(forumId)
   const { isHiding, hideError, hide } = useForumHide()
+  const [isEditFormOpen, setIsEditFormOpen] = useState(false)
 
   if (!forumId) {
     return (
@@ -180,14 +184,21 @@ export default function ForumDetailPage() {
           </div>
         )}
 
-        {isRp && (
+        {isRp && !isEditFormOpen && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
             <p className="text-sm font-semibold text-yellow-800 mb-2">Modération</p>
             <p className="text-xs text-yellow-700">
-              En tant que responsable pédagogique, vous pouvez exclure des membres de ce forum
-              {!forum.isHidden && ' ou le cacher à tous'}.
+              En tant que responsable pédagogique, vous pouvez modifier ce forum, exclure des
+              membres{!forum.isHidden && ' ou le cacher à tous'}.
             </p>
             <div className="flex flex-wrap gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setIsEditFormOpen(true)}
+                className="px-3 py-1 text-xs font-medium text-yellow-800 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 transition-colors"
+              >
+                {FORUM_LABELS.editForum}
+              </button>
               <button
                 type="button"
                 onClick={() => navigate(`/community/forums/${forum.id}/moderation`)}
@@ -211,6 +222,17 @@ export default function ForumDetailPage() {
               <p className="text-xs text-red-700 mt-2">{FORUM_LABELS.hiddenNotice}</p>
             )}
           </div>
+        )}
+
+        {isRp && isEditFormOpen && (
+          <ForumCreateForm
+            forum={forum}
+            onUpdated={(updatedForum) => {
+              setForum(updatedForum)
+              setIsEditFormOpen(false)
+            }}
+            onCancel={() => setIsEditFormOpen(false)}
+          />
         )}
 
         <ForumCommentList

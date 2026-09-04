@@ -71,6 +71,22 @@ export interface CreateForumPayload {
   allowedRoles?: ForumRestrictableRole[]
 }
 
+/**
+ * Body de `PATCH /forums/:id` (ajouté le 2026-09-04) — tous les champs optionnels, seuls ceux
+ * fournis sont modifiés. `allowedRoles: []` explicite normalise en "ouvert à tous" côté serveur ;
+ * pour ne pas toucher `allowedRoles`, ne pas inclure la clé.
+ */
+export interface UpdateForumPayload {
+  title?: string
+  description?: string
+  level?: string
+  difficulty?: string
+  theme?: string
+  competences?: string
+  tags?: string
+  allowedRoles?: ForumRestrictableRole[]
+}
+
 export interface ForumComment {
   id: string
   forumId: string

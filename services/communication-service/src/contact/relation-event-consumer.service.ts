@@ -47,17 +47,29 @@ export class RelationEventConsumerService implements OnModuleInit, OnModuleDestr
     private readonly dataSource: DataSource,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    await this.ensureConsumerGroup();
+  /**
+   * Deliberately not awaited: if Redis is unreachable (or, as in this service's own e2e
+   * harness, never running at all), the whole application must still boot and serve HTTP
+   * traffic — the event pipeline degrades to "idle" rather than blocking startup.
+   */
+  onModuleInit(): void {
     this.running = true;
-    void this.consumeLoop();
+    void this.bootstrap();
     this.reclaimTimer = setInterval(() => void this.reclaimStale(), RECLAIM_INTERVAL_MS);
+  }
+
+  private async bootstrap(): Promise<void> {
+    await this.ensureConsumerGroup();
+    void this.consumeLoop();
   }
 
   onModuleDestroy(): void {
     this.running = false;
     if (this.reclaimTimer) clearInterval(this.reclaimTimer);
   }
+
+  // Note: the shared Redis connection itself is disconnected by EventPublisherService's own
+  // onModuleDestroy (same REDIS_CLIENT instance) — closing it twice would be redundant.
 
   private async ensureConsumerGroup(): Promise<void> {
     try {

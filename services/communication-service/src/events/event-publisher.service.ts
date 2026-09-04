@@ -37,6 +37,9 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+    // Without this, ioredis's default indefinite reconnection strategy keeps a background
+    // timer alive and the process never exits cleanly (observed hanging the e2e Jest run).
+    this.redis.disconnect();
   }
 
   /**

@@ -8,6 +8,8 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -58,6 +60,7 @@ export class ContactController {
   }
 
   @Post(':id/break')
+  @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', description: 'Contact UUID' })
   @ApiOperation({
     summary: 'Break an active contact',
@@ -166,6 +169,7 @@ export class ContactController {
   }
 
   @Post('requests/:id/accept')
+  @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', description: 'ContactRequest UUID' })
   @ApiOperation({ summary: 'Accept an incoming contact request' })
   @ApiResponse({ status: 200, type: ContactRequestResponseDto })
@@ -182,6 +186,7 @@ export class ContactController {
   }
 
   @Post('requests/:id/decline')
+  @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', description: 'ContactRequest UUID' })
   @ApiOperation({ summary: 'Decline an incoming contact request' })
   @ApiResponse({ status: 200, type: ContactRequestResponseDto })

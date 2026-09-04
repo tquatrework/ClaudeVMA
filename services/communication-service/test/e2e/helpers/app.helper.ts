@@ -11,34 +11,64 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { Client } from 'pg';
 import { AppModule } from '../../../src/app.module';
 import * as jwt from 'jsonwebtoken';
 import { TEST_JWT_SECRET, TEST_INTERNAL_SECRET } from '../env.setup';
-import { ContactPolicy } from '../../../src/contact/entities/contact-policy.entity';
+import { Contact } from '../../../src/contact/entities/contact.entity';
+import { ContactRequest } from '../../../src/contact/entities/contact-request.entity';
 
 export { TEST_JWT_SECRET, TEST_INTERNAL_SECRET };
 
 /**
  * Build and start a test application instance backed by a local PostgreSQL database.
  * The schema is reset before each suite so tests stay independent.
+ *
+ * `overrideProviders` lets a spec stub outbound HTTP clients (ProfileServiceClient,
+ * IdentityAccessClient) instead of hitting real services that aren't running in this harness —
+ * standard Nest DI override, not a network mock.
  */
-export async function createTestApp(): Promise<INestApplication> {
-  const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+export async function createTestApp(
+  overrideProviders: Array<{ provide: unknown; useValue: unknown }> = [],
+): Promise<INestApplication> {
+  // Drop the public schema entirely (removes tables, enum types, AND TypeORM's own
+  // `migrations` bookkeeping table) BEFORE the Nest app is built. `app.init()` below triggers
+  // TypeOrmModule's connection, which now runs `migrationsRun: true` (AppModule) — it must see
+  // an empty schema, otherwise a previous spec file's leftover tables (created by this same
+  // helper's own `synchronize()` a few lines down) collide with the migration's `CREATE TABLE`.
+  await resetSchema();
+
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  for (const override of overrideProviders) {
+    builder.overrideProvider(override.provide).useValue(override.useValue);
+  }
+  const moduleFixture: TestingModule = await builder.compile();
 
   const app = moduleFixture.createNestApplication();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.init();
 
-  // Drop the public schema entirely (removes tables AND enum types) then recreate.
+  // Migrations (run above, during app.init()) only cover contacts/contact_requests/
+  // domain_events/processed_events. `synchronize()` fills in the remaining entities
+  // (conversations, messages, incident_threads) that have no migration yet — see
+  // "Points en suspens" in docs/services/communication-service.md. It leaves the
+  // already-migrated tables untouched since they already match their entity metadata.
   const dataSource = app.get<DataSource>(getDataSourceToken());
-  await dataSource.query('DROP SCHEMA public CASCADE');
-  await dataSource.query('CREATE SCHEMA public');
-  await dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
   await dataSource.synchronize();
 
   return app;
+}
+
+async function resetSchema(): Promise<void> {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+  try {
+    await client.query('DROP SCHEMA public CASCADE');
+    await client.query('CREATE SCHEMA public');
+    await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+  } finally {
+    await client.end();
+  }
 }
 
 /**
@@ -62,13 +92,18 @@ export function makeJwt(
 }
 
 /**
- * Direct repository access for test-only seeding/state manipulation
- * (e.g. flipping `mandatory`/`status` on a ContactPolicy) that the public
- * API intentionally does not expose.
+ * Direct repository access for test-only seeding (e.g. inserting an ACTIVE Contact directly,
+ * standing in for the Redis-derived default-contact flow that e2e tests don't exercise
+ * end-to-end) — the public API intentionally does not expose a way to fabricate a contact.
  */
-export function getContactPolicyRepository(app: INestApplication): Repository<ContactPolicy> {
+export function getContactRepository(app: INestApplication): Repository<Contact> {
   const dataSource = app.get<DataSource>(getDataSourceToken());
-  return dataSource.getRepository(ContactPolicy);
+  return dataSource.getRepository(Contact);
+}
+
+export function getContactRequestRepository(app: INestApplication): Repository<ContactRequest> {
+  const dataSource = app.get<DataSource>(getDataSourceToken());
+  return dataSource.getRepository(ContactRequest);
 }
 
 /**

@@ -15,8 +15,16 @@ export const RedisClientProvider: Provider = {
   provide: REDIS_CLIENT,
   useFactory: (config: ConfigService) => {
     const client = new Redis(config.getOrThrow<string>('REDIS_URL'), {
-      maxRetriesPerRequest: null,
+      // Bounded (not null): a one-off XADD/XGROUP/XACK call must eventually fail rather than
+      // queue forever if Redis is unreachable — important for the app to still boot (and for
+      // this service's own e2e harness, which never runs Redis) even when the event pipeline
+      // is degraded. Production resilience against a real outage comes from docker-compose's
+      // `depends_on: redis: condition: service_healthy`, not from an infinite local retry here.
+      maxRetriesPerRequest: 3,
+      connectTimeout: 5000,
+      lazyConnect: true,
     });
+    client.connect().catch((error) => logger.warn(`Initial Redis connection failed: ${error.message}`));
     client.on('error', (error) => logger.error(`Redis connection error: ${error.message}`));
     return client;
   },

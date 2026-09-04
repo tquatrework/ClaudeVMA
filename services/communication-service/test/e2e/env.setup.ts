@@ -47,3 +47,6 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = TEST_JWT_SECRET;
 process.env.INTERNAL_SECRET = TEST_INTERNAL_SECRET;
 process.env.DATABASE_URL = buildLocalDatabaseUrl();
+process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+process.env.PROFILE_SERVICE_URL = process.env.PROFILE_SERVICE_URL ?? 'http://localhost:3002';
+process.env.IDENTITY_ACCESS_SERVICE_URL = process.env.IDENTITY_ACCESS_SERVICE_URL ?? 'http://localhost:3001';

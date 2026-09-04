@@ -16,25 +16,24 @@
  *   GET  /incidents/:id                          détail d'un incident (TI)
  *   PUT  /incidents/:id/status                   changer le statut (TI)
  *
- *   API interne
- *   POST /internal/sync-contacts                 synchroniser les contacts autorisés
- *
  * Règles couvertes :
- *   COM-BR-010  Les contacts sont déduits des relations métier (sync interne)
- *   COM-FB-001  Parent ne peut pas contacter formateur ponctuel hors fenêtre → 403
- *   COM-FB-002  Utilisateur ne peut pas contacter sans relation autorisée → 403
+ *   COM-BR-010  Un message n'est possible qu'entre contacts ACTIFS (docs/architecture/
+ *               contacts-messagerie.md, point 8) — les contacts eux-mêmes sont désormais un
+ *               modèle propre à ce service (Contact/ContactRequest), plus une simple
+ *               synchronisation depuis profile-service ; ces tests seedent des Contact
+ *               directement en base (getContactRepository), sur le même principe que le futur
+ *               flux Redis dérivé des relations métier, qu'un test e2e ne peut pas exercer
+ *               bout en bout sans faire tourner profile-service.
+ *   COM-FB-002  Utilisateur ne peut pas contacter sans contact actif → 403
  *   COM-FB-003  Un message envoyé ne peut pas être supprimé ni modifié
  *   COM-RA-006  TI gère les fils d'incident
  *
  * Auth : JWT Bearer (type: "access") via JwtAuthGuard.
- * Internal : X-Internal-Secret header.
  */
 
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
-import { createTestApp, makeJwt, IDS } from './helpers/app.helper';
-
-const INTERNAL_SECRET = 'test_internal_secret';
+import { createTestApp, makeJwt, getContactRepository, IDS } from './helpers/app.helper';
 
 describe('[E2E] Communication Service', () => {
   let app: INestApplication;
@@ -65,49 +64,20 @@ describe('[E2E] Communication Service', () => {
     ap1Token       = makeJwt(IDS.ap1,       'animateur_pedagogique');
     tiToken        = makeJwt(IDS.ti,        'technicien_informatique');
 
-    // Seed: authorize student1 ↔ teacher1 contact relationship
-    await request(app.getHttpServer())
-      .post('/internal/sync-contacts')
-      .set('X-Internal-Secret', INTERNAL_SECRET)
-      .send({
-        userId: IDS.student1,
-        contacts: [
-          { contactId: IDS.teacher1, relationType: 'teacher-student' },
-        ],
-      });
-
-    await request(app.getHttpServer())
-      .post('/internal/sync-contacts')
-      .set('X-Internal-Secret', INTERNAL_SECRET)
-      .send({
-        userId: IDS.teacher1,
-        contacts: [
-          { contactId: IDS.student1, relationType: 'teacher-student' },
-        ],
-      });
-
-    // Seed: authorize parent1 ↔ student1
-    await request(app.getHttpServer())
-      .post('/internal/sync-contacts')
-      .set('X-Internal-Secret', INTERNAL_SECRET)
-      .send({
-        userId: IDS.parent1,
-        contacts: [
-          { contactId: IDS.student1, relationType: 'parent-student' },
-        ],
-      });
-
-    // Seed: authorize rp1 with all contacts
-    await request(app.getHttpServer())
-      .post('/internal/sync-contacts')
-      .set('X-Internal-Secret', INTERNAL_SECRET)
-      .send({
-        userId: IDS.rp1,
-        contacts: [
-          { contactId: IDS.student1, relationType: 'rp-student' },
-          { contactId: IDS.teacher1, relationType: 'rp-teacher' },
-        ],
-      });
+    // Seed ACTIVE contacts directly in the new Contact model (student1<->teacher1,
+    // parent1<->student1, rp1<->student1, rp1<->teacher1) — stands in for the Redis-derived
+    // default-contact flow, which an e2e test cannot exercise without profile-service running.
+    const contactRepository = getContactRepository(app);
+    const seedContact = (userIdA: string, userIdB: string) => {
+      const [userAId, userBId] = userIdA < userIdB ? [userIdA, userIdB] : [userIdB, userIdA];
+      return contactRepository.save(
+        contactRepository.create({ userAId, userBId, status: 'active', origin: 'default' }),
+      );
+    };
+    await seedContact(IDS.student1, IDS.teacher1);
+    await seedContact(IDS.parent1, IDS.student1);
+    await seedContact(IDS.rp1, IDS.student1);
+    await seedContact(IDS.rp1, IDS.teacher1);
   });
 
   afterAll(async () => {
@@ -154,11 +124,8 @@ describe('[E2E] Communication Service', () => {
   //   GET  /messages/conversation/:id → inchangé
   //   PATCH /messages/:id/read        → inchangé
   //
-  // Les routes contacts (GET /contacts, POST /contacts/:id/activate,
-  // DELETE /contacts/:id, PATCH /contacts/:id/visibility) ne sont PAS exposées
-  // côté backend (pas de contact.controller.ts) — ROUTES MANQUANTES BACKEND.
-  // Ces routes sont consommées par le frontend (apps/web/src/api/communication.ts)
-  // mais non encore implémentées dans communication-service.
+  // Les routes contacts (GET /contacts, /contacts/:id/break, /contacts/requests/*,
+  // /contacts/search/*) sont désormais couvertes par contact.e2e-spec.ts.
   // ──────────────────────────────────────────────────────────────────────────
 
   describe('Critères d\'acceptance COM-BR-001 à COM-RA-002', () => {
@@ -315,60 +282,6 @@ describe('[E2E] Communication Service', () => {
       expect(res.status).toBe(403);
     });
 
-    // ── Routes contacts manquantes côté backend ──────────────────────────────
-    // ROUTE MANQUANTE BACKEND — GET /contacts
-    // ROUTE MANQUANTE BACKEND — POST /contacts/:id/activate
-    // ROUTE MANQUANTE BACKEND — DELETE /contacts/:id
-    // ROUTE MANQUANTE BACKEND — PATCH /contacts/:id/visibility
-    //
-    // Ces routes sont définies dans apps/web/src/api/communication.ts
-    // mais aucun contact.controller.ts n'existe dans communication-service.
-    // Les tests seront à ajouter quand le contrôleur sera implémenté.
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Internal API
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('POST /internal/sync-contacts', () => {
-    it('Sans secret → 401', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/internal/sync-contacts')
-        .send({ userId: IDS.student2, contacts: [] });
-      expect(res.status).toBe(401);
-    });
-
-    it('Secret invalide → 401', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/internal/sync-contacts')
-        .set('X-Internal-Secret', 'wrong_secret')
-        .send({ userId: IDS.student2, contacts: [] });
-      expect(res.status).toBe(401);
-    });
-
-    it('[COM-BR-010] Sync réussie → 204', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/internal/sync-contacts')
-        .set('X-Internal-Secret', INTERNAL_SECRET)
-        .send({
-          userId: IDS.student2,
-          contacts: [
-            { contactId: IDS.teacher2, relationType: 'teacher-student' },
-          ],
-        });
-      expect(res.status).toBe(204);
-    });
-
-    it('Body invalide (contactId non UUID) → 400', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/internal/sync-contacts')
-        .set('X-Internal-Secret', INTERNAL_SECRET)
-        .send({
-          userId: IDS.student1,
-          contacts: [{ contactId: 'not-a-uuid' }],
-        });
-      expect(res.status).toBe(400);
-    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

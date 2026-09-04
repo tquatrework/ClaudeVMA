@@ -279,3 +279,26 @@ le RP doit pouvoir rééditer un forum après sa création, pas seulement le cac
   passent (7 suites), `npm run build` (`nest build`) propre.
 - Contrat détaillé : `docs/routes.md`, section `## community-path-service`, body/réponse
   `PATCH /forums/:id` documentés juste après le body de `POST /forums`.
+
+## Texte réel de la charte écrit en base — 2026-09-04 (pas de code modifié)
+
+Suite directe de la refonte Forums ci-dessus. L'utilisateur a fourni le texte réel de la charte
+(`docs/doc-interne/charte d'utilisation des forums`, Markdown, 3615 caractères).
+
+- **Aucune contrainte de longueur n'existait** sur `content` (`UpdateForumCharterDto` ne porte
+  que `@IsString()`, colonne Postgres `type: 'text'` sans limite, aucun `@MaxLength`/`@Length`
+  ailleurs dans le service — vérifié par recherche exhaustive). Le texte de 3615 caractères
+  n'était donc bloqué par aucune validation existante ; **aucune modification de code n'a été
+  nécessaire** pour ce point.
+- **Écriture faite par appel HTTP direct** contre la pile réelle
+  (`https://claudevma.visioprof.fr`), pas par script/migration : connexion avec un compte RP de
+  test existant (`trsflow.rp.0811`, déjà utilisé par d'autres chantiers, voir
+  `.claude/reports/front-tester-2026-08-17.md`), puis `PATCH /forums/charter` avec le contenu
+  exact du fichier source (encodage JSON via un script Python ponctuel, pour éviter toute
+  altération d'échappement des apostrophes typographiques/accents lors d'un passage par le
+  shell).
+- **Vérifié par `GET /forums/charter` après écriture** : comparaison caractère par caractère
+  entre la réponse serveur et le fichier source — correspondance exacte (3615/3615 caractères,
+  `EXACT MATCH: True`).
+- Working tree du service inchangé (`git status` propre) : ce complément n'a donné lieu à aucun
+  commit ni PR, seulement à une écriture de données via la route déjà existante.

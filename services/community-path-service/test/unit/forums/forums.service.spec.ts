@@ -348,6 +348,74 @@ describe('ForumsService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // updateForum()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('updateForum()', () => {
+    it('le RP peut éditer les métadonnées (createur ou non)', async () => {
+      const forum = buildSampleForum({ createdById: 'un-autre-rp' });
+      forumRepo.findOne.mockResolvedValue(forum);
+      forumRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.updateForum(
+        FORUM_ID,
+        { title: 'Nouveau titre', tags: 'algèbre,géométrie' },
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+      );
+
+      expect(result.title).toBe('Nouveau titre');
+      expect(result.tags).toBe('algèbre,géométrie');
+      expect(forumRepo.save).toHaveBeenCalled();
+    });
+
+    it('seuls les champs fournis sont modifiés, les autres restent intacts', async () => {
+      const forum = buildSampleForum({ description: 'ancienne description' });
+      forumRepo.findOne.mockResolvedValue(forum);
+      forumRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.updateForum(FORUM_ID, { title: 'Titre seul' }, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.title).toBe('Titre seul');
+      expect(result.description).toBe('ancienne description');
+    });
+
+    it('un allowedRoles vide fourni est normalisé en null (ouvert à tous)', async () => {
+      const forum = buildSampleForum({ allowedRoles: [ForumRestrictableRole.FORMATEUR] });
+      forumRepo.findOne.mockResolvedValue(forum);
+      forumRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.updateForum(FORUM_ID, { allowedRoles: [] }, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.allowedRoles).toBeNull();
+    });
+
+    it('un forum caché reste éditable', async () => {
+      const forum = buildSampleForum({ isHidden: true, hiddenAt: new Date(), hiddenByUserId: RP_ID });
+      forumRepo.findOne.mockResolvedValue(forum);
+      forumRepo.save.mockImplementation(async (entity) => entity);
+
+      const result = await forumsService.updateForum(FORUM_ID, { title: 'Toujours caché mais édité' }, UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      expect(result.title).toBe('Toujours caché mais édité');
+      expect(result.isHidden).toBe(true);
+    });
+
+    it("lève ForbiddenException si l'appelant n'est pas RP (pas même AP)", async () => {
+      await expect(
+        forumsService.updateForum(FORUM_ID, { title: 'x' }, UserRole.ANIMATEUR_PEDAGOGIQUE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève NotFoundException si le forum est introuvable', async () => {
+      forumRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        forumsService.updateForum(FORUM_ID, { title: 'x' }, UserRole.RESPONSABLE_PEDAGOGIQUE),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // getForumComments()
   // ─────────────────────────────────────────────────────────────────────────
 

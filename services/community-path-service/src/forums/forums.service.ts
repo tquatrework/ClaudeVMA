@@ -15,6 +15,7 @@ import { CreateForumDto } from './dto/create-forum.dto';
 import { CreateForumCommentDto } from './dto/create-forum-comment.dto';
 import { CreateForumExclusionDto } from './dto/create-forum-exclusion.dto';
 import { UpdateForumCharterDto } from './dto/update-forum-charter.dto';
+import { UpdateForumDto } from './dto/update-forum.dto';
 import { UserRole } from '../common/enums/user-role.enum';
 import {
   FORUM_ADMIN_BYPASS_ROLES,
@@ -199,6 +200,46 @@ export class ForumsService {
       throw new NotFoundException(`Forum ${forumId} introuvable`);
     }
     return forum;
+  }
+
+  /**
+   * Édite les métadonnées d'un forum — arbitrage du 2026-09-04. Réservé au
+   * rôle RP dans son ensemble (pas seulement le créateur du forum), même
+   * principe que `hideForum` ci-dessous : les forums sont un outil collectif
+   * de la fonction RP, pas un contenu individuel. Seuls les champs fournis
+   * dans le DTO sont modifiés ; un forum caché reste éditable (le masquage
+   * n'est pas un état terminal). L'image d'illustration n'est pas concernée,
+   * elle reste gérée par uploadForumImage.
+   */
+  async updateForum(
+    forumId: string,
+    updateForumDto: UpdateForumDto,
+    actorRole: string,
+  ): Promise<Forum> {
+    if (actorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Seul un responsable pédagogique peut éditer un forum');
+    }
+
+    const forum = await this.forumRepository.findOne({ where: { id: forumId } });
+    if (!forum) {
+      throw new NotFoundException(`Forum ${forumId} introuvable`);
+    }
+
+    if (updateForumDto.title !== undefined) forum.title = updateForumDto.title;
+    if (updateForumDto.description !== undefined) forum.description = updateForumDto.description;
+    if (updateForumDto.level !== undefined) forum.level = updateForumDto.level;
+    if (updateForumDto.difficulty !== undefined) forum.difficulty = updateForumDto.difficulty;
+    if (updateForumDto.theme !== undefined) forum.theme = updateForumDto.theme;
+    if (updateForumDto.competences !== undefined) forum.competences = updateForumDto.competences;
+    if (updateForumDto.tags !== undefined) forum.tags = updateForumDto.tags;
+    if (updateForumDto.allowedRoles !== undefined) {
+      forum.allowedRoles =
+        updateForumDto.allowedRoles && updateForumDto.allowedRoles.length > 0
+          ? updateForumDto.allowedRoles
+          : null;
+    }
+
+    return this.forumRepository.save(forum);
   }
 
   /**

@@ -63,6 +63,17 @@ export enum NotificationType {
   EVALUATION_CORRECTION_DECLINED = 'evaluation_correction_declined',
   EVALUATION_CORRECTION_ALL_DECLINED = 'evaluation_correction_all_declined',
   EVALUATION_CORRECTED = 'evaluation_corrected',
+  // Ajoutés le 2026-09-04 pour la fonctionnalité Contacts de
+  // communication-service (`docs/architecture/contacts-messagerie.md`,
+  // point 9), consommés depuis les 3 événements réels publiés sur
+  // `visiomath:events`. Payload confirmé empiriquement (aucune demande de
+  // contact réelle n'existait encore en production au moment de cette
+  // session) via un aller-retour réel demande/accepte/refuse contre la
+  // pile déployée, plutôt que supposé par analogie — voir
+  // EventProcessorService et docs/services/dashboard-notification-service.md.
+  CONTACT_REQUEST_RECEIVED = 'contact_request_received',
+  CONTACT_REQUEST_ACCEPTED = 'contact_request_accepted',
+  CONTACT_REQUEST_DECLINED = 'contact_request_declined',
 }
 
 @Entity('notifications')

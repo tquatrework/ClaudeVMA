@@ -2667,6 +2667,36 @@ notifications par rôle ».
 > `null`, même pour un événement avec un vrai titre. `CalendarEventCreated` porte désormais la
 > valeur réelle et persistée de l'événement (voir section calendar-service ci-dessus, paragraphe
 > « `title` — défaut corrigé le 2026-08-20 »).
+>
+> **`ContactRequestCreated`/`ContactRequestAccepted`/`ContactRequestDeclined` — ajoutés le
+> 2026-09-04** (`docs/architecture/contacts-messagerie.md`, point 9). Publiés par
+> `communication-service` sur le même stream `visiomath:events` (même pattern outbox + `XADD`, PR
+> #257/#262). **Aucun contrat de payload n'était documenté ici au moment de cette session, et
+> aucune demande de contact réelle n'existait encore en production pour l'observer passivement** —
+> confirmé en effectuant un aller-retour réel (demande, acceptation, refus) contre la pile déployée
+> puis en lisant les trois entrées produites sur `XRANGE visiomath:events`, plutôt qu'en supposant
+> le payload par analogie. Les trois événements portent exactement la même forme :
+> `{requestId, requesterId, targetId}` — aucun détail sur la pénalité de refus (cooldown d'un mois,
+> blocage définitif au 3ᵉ refus) n'est publié, donc aucun n'est fabriqué côté notification (point
+> ouvert signalé dans `docs/services/dashboard-notification-service.md`, pas une omission).
+> `ContactRequestCreated → type: contact_request_received`, destinataire `targetId` (celui qui doit
+> accepter/refuser, jamais le demandeur). `ContactRequestAccepted → type: contact_request_accepted`
+> et `ContactRequestDeclined → type: contact_request_declined`, destinataire `requesterId` (le
+> demandeur original, informé de l'issue). `metadata` porte dans les trois cas
+> `{requestId, requesterId, requesterName, targetId, targetName}` — les deux noms sont toujours
+> résolus (même si un seul est affiché selon le type), pour que le front n'ait pas à distinguer une
+> forme de metadata par type. **Bug réel constaté côté `communication-service`, à corriger là-bas,
+> pas ici** : les trois événements du test de vérification ont continué à être republiés avec le
+> **même `eventId`** toutes les 5 à 15 secondes pendant plus de 8 minutes d'observation continue —
+> bien au-delà de la republication ponctuelle déjà documentée pour `teacher-request-service`
+> (un seul rejeu après un crash entre `XADD` et l'`UPDATE` de `published_at`). Ici rien ne semble
+> jamais marquer `published_at` avec succès côté `communication-service` pour ces trois types :
+> `visiomath:events` a grossi de 260 à 392 entrées en quelques minutes du seul fait de cette boucle.
+> **Sans conséquence pour `dashboard-notification-service`** — vérifié explicitement en conditions
+> réelles : aucune notification dupliquée malgré des dizaines de redelivrances du même `eventId`,
+> la déduplication par `eventId` de ce consommateur absorbe correctement le cas — mais **le stream
+> partagé par tous les consommateurs du projet croît sans borne** tant que ce n'est pas corrigé côté
+> `communication-service`.
 
 ---
 

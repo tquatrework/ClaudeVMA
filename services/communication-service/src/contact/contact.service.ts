@@ -125,7 +125,7 @@ export class ContactService {
   async breakContact(actor: AuthenticatedUser, contactId: string): Promise<Contact> {
     const contact = await this.contactRepository.findOne({ where: { id: contactId } });
     if (!contact || (contact.userAId !== actor.id && contact.userBId !== actor.id)) {
-      throw new NotFoundException(`Contact ${contactId} not found`);
+      throw new NotFoundException('Contact introuvable');
     }
     if (contact.status === 'broken') return contact;
 

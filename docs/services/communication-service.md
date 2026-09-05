@@ -468,3 +468,64 @@ l'image tournant depuis le chantier Contacts du 2026-09-04) :
   reste asynchrone et non bloquante pour les requêtes HTTP — mais une connexion Redis dédiée par
   usage (une pour `XADD`, une pour `XREADGROUP`) supprimerait cette latence si elle devenait
   gênante. Non traité ici, hors périmètre du bug signalé.
+
+## Session — correctif messages d'erreur en anglais (2026-09-05)
+
+Bug signalé par le subagent `front-developper` (chantier Contacts et Messagerie, PR #269) après
+vérification en conditions réelles : au moins deux `ForbiddenException` de la route d'envoi de
+message étaient en anglais et remontaient telles quelles à l'écran, en violation de la règle de
+langue du 2026-08-09 (`docs/architecture/identite-profils-acces.md`) — « tout ce que l'utilisateur
+lit est en français ». Recherche étendue à tout le service (pas seulement les deux messages
+signalés), à l'identique de la correction déjà faite pour `roles.guard.ts` de `profile-service`.
+
+### Messages corrigés (avant → après)
+
+| Fichier | Avant (EN) | Après (FR) |
+|---|---|---|
+| `conversation.service.ts` (`create`) | `A conversation must include at least one other participant` | `Une conversation doit inclure au moins un autre participant` |
+| `conversation.service.ts` (`create`) | `` `You do not have an active contact with user ${inactiveContacts[0]}` `` (UUID exposé) | `Vous n'avez pas de contact actif avec l'une des personnes de cette conversation` (UUID retiré) |
+| `conversation.service.ts` (`sendMessage`) | `` `Conversation ${conversationId} not found` `` (UUID exposé) | `Conversation introuvable` |
+| `conversation.service.ts` (`sendMessage`) | `You are not a participant in this conversation` | `Vous ne participez pas à cette conversation` |
+| `conversation.service.ts` (`sendMessage`) | `` `You no longer have an active contact with ${inactiveContacts[0]} — messaging is closed` `` (UUID exposé — un des deux messages signalés par `front-developper`) | `Vous n'avez plus de contact actif avec cette personne — la messagerie est fermée` |
+| `conversation.service.ts` (`getMessages`) | `` `Conversation ${conversationId} not found` ``, `You are not a participant...` | `Conversation introuvable`, `Vous ne participez pas à cette conversation` |
+| `conversation.service.ts` (`markAsRead`) | `` `Message ${messageId} not found` ``, `You are not a participant...` (un des deux messages signalés) | `Message introuvable`, `Vous ne participez pas à cette conversation` |
+| `incident.service.ts` (×2) | `` `Incident ${incidentId} not found` `` (UUID exposé) | `Incident introuvable` |
+| `contact.service.ts` (`breakContact`) | `` `Contact ${contactId} not found` `` (UUID exposé) | `Contact introuvable` |
+| `contact-request.service.ts` (`findOwnedIncomingRequest`) | `` `Contact request ${requestId} not found` `` (UUID exposé) | `Demande de contact introuvable` |
+| `common/guards/roles.guard.ts` | `Insufficient role` | `Votre rôle ne vous permet pas d'accéder à cette ressource.` — libellé repris à l'identique de `profile-service` (même bug, déjà corrigé là-bas) |
+| `contact/clients/profile-service.client.ts` (×3, `ServiceUnavailableException`) | `profile-service unavailable`, `profile-service: GET .../search-by-name is not available yet` | `profile-service injoignable`, `profile-service : GET .../search-by-name n'est pas encore disponible` — même convention que `content-catalog-service` |
+| `contact/clients/identity-access.client.ts` (×2, `ServiceUnavailableException`) | `identity-access-service unavailable` | `identity-access-service injoignable` |
+
+Toutes ces routes/appels sont directement atteignables par un utilisateur final via `api-gateway`
+(messagerie, contacts, incidents TI) ou déclenchées en cascade par une action utilisateur (appel
+interne vers `profile-service`/`identity-access-service` pendant une recherche de contact) : le
+`message` de l'exception HTTP est bien ce que le front affiche tel quel, jamais reformulé côté
+client.
+
+### Messages volontairement non touchés (hors périmètre)
+
+- `common/guards/jwt-auth.guard.ts` (`Missing or malformed Authorization header`,
+  `Invalid or expired token`, `Invalid token type`) et `common/guards/internal-secret.guard.ts`
+  (`Invalid internal secret`) : restent en anglais, **conformément au précédent déjà posé par
+  `profile-service`** qui avait corrigé son `roles.guard.ts` sans toucher son `jwt-auth.guard.ts`
+  strictement identique. Motif : `internal-secret.guard.ts` protège des routes `/internal/*`
+  jamais exposées par `api-gateway` (aucun utilisateur ne peut l'atteindre) ; les messages JWT sont
+  un cran plus bas que la logique métier et n'ont, à ce jour, jamais été signalés comme visibles à
+  l'écran dans ce projet. À rouvrir si un signalement utilisateur les concerne un jour — décision
+  cohérente avec l'existant, pas une nouvelle règle.
+- `contact-request.service.ts` : la date ISO brute dans le message de cooldown
+  (`` `... à partir du ${cooldownEndsAt.toISOString()}` ``) n'est pas un texte anglais — hors
+  périmètre de ce correctif, qui porte sur la langue, pas le format de date.
+- Messages de validation générés par défaut par `class-validator`/`ValidationPipe` (ex. champs DTO
+  manquants ou mal typés) : restent en anglais. Constat transverse aux 16 microservices du projet
+  (aucun n'a de `exceptionFactory` personnalisée), pas une régression propre à
+  `communication-service` — signalé ici pour mémoire, non corrigé pour rester dans le périmètre de
+  cette tâche.
+
+### Tests
+
+- Aucune assertion de test (unitaire ou e2e) ne portait sur le texte exact de ces messages
+  (vérifié par recherche `grep` sur `.message`/`toMatch`/`toContain` avant modification) — seuls
+  les codes de statut HTTP sont vérifiés. Aucune mise à jour de test nécessaire.
+- Suite complète relancée après correctif : 17 tests unitaires + 86 tests e2e, tous verts.
+  `npm run build` (nest build/tsc) sans erreur.

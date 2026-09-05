@@ -48,14 +48,16 @@ export class ConversationService {
     const otherParticipants = dto.participantIds.filter((participantId) => participantId !== actor.id);
 
     if (otherParticipants.length === 0) {
-      throw new BadRequestException('A conversation must include at least one other participant');
+      throw new BadRequestException('Une conversation doit inclure au moins un autre participant');
     }
 
     // Single batched authorization check (avoids one query per participant — N+1).
     const inactiveContacts = await this.contactService.findInactiveContacts(actor.id, otherParticipants);
     if (inactiveContacts.length > 0) {
+      // 2026-08-09: no UUID surfaced in a user-facing message — the offending
+      // participant's id is deliberately omitted, not just untranslated.
       throw new ForbiddenException(
-        `You do not have an active contact with user ${inactiveContacts[0]}`,
+        "Vous n'avez pas de contact actif avec l'une des personnes de cette conversation",
       );
     }
 
@@ -88,18 +90,19 @@ export class ConversationService {
     actor: AuthenticatedUser,
   ): Promise<Message> {
     const conversation = await this.conversationRepository.findOne({ where: { id: conversationId } });
-    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`);
+    if (!conversation) throw new NotFoundException('Conversation introuvable');
 
     if (!conversation.participantIds.includes(actor.id)) {
-      throw new ForbiddenException('You are not a participant in this conversation');
+      throw new ForbiddenException("Vous ne participez pas à cette conversation");
     }
 
     if (!conversation.isIncident) {
       const otherParticipants = conversation.participantIds.filter((id) => id !== actor.id);
       const inactiveContacts = await this.contactService.findInactiveContacts(actor.id, otherParticipants);
       if (inactiveContacts.length > 0) {
+        // 2026-08-09: no UUID surfaced in a user-facing message.
         throw new ForbiddenException(
-          `You no longer have an active contact with ${inactiveContacts[0]} — messaging is closed`,
+          "Vous n'avez plus de contact actif avec cette personne — la messagerie est fermée",
         );
       }
     }
@@ -129,10 +132,10 @@ export class ConversationService {
    */
   async getMessages(conversationId: string, actor: AuthenticatedUser): Promise<Message[]> {
     const conversation = await this.conversationRepository.findOne({ where: { id: conversationId } });
-    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`);
+    if (!conversation) throw new NotFoundException('Conversation introuvable');
 
     if (!conversation.participantIds.includes(actor.id)) {
-      throw new ForbiddenException('You are not a participant in this conversation');
+      throw new ForbiddenException("Vous ne participez pas à cette conversation");
     }
 
     return this.messageRepository.find({
@@ -148,11 +151,11 @@ export class ConversationService {
    */
   async markAsRead(messageId: string, actor: AuthenticatedUser): Promise<Message> {
     const message = await this.messageRepository.findOne({ where: { id: messageId } });
-    if (!message) throw new NotFoundException(`Message ${messageId} not found`);
+    if (!message) throw new NotFoundException('Message introuvable');
 
     const conversation = await this.conversationRepository.findOne({ where: { id: message.conversationId } });
     if (!conversation || !conversation.participantIds.includes(actor.id)) {
-      throw new ForbiddenException('You are not a participant in this conversation');
+      throw new ForbiddenException("Vous ne participez pas à cette conversation");
     }
 
     message.isRead = true;

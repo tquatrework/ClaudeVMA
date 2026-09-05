@@ -1,5 +1,15 @@
 # communication-service — 2026-09-05
 
+> Deux sessions distinctes ont écrit dans ce fichier le même jour (collision de nom de rapport,
+> convention `[service]-[date].md`). Les deux sont conservées intégralement, séparées ci-dessous,
+> plutôt que l'une n'écrase l'autre — la seconde (correctif messages d'erreur en anglais) avait été
+> livrée par son agent sans être committée dans le dépôt principal ; récupérée et reconciliée par
+> l'orchestrateur après coup.
+
+---
+
+# Session 1 — correctif fuite de republication de l'outbox
+
 ## Sujet
 
 Bug réel signalé par le subagent `dashboard-notification-service` (PR #264, mergée) : le
@@ -140,3 +150,119 @@ attendu par le service.
   section Contacts 2026-09-04 : absence d'événements de relation publiés par `profile-service`,
   route de recherche par nom manquante côté `profile-service`) sont inchangés — non concernés par
   cette session.
+
+---
+
+# Session 2 — correctif messages d'erreur en anglais
+
+## Contexte
+
+Bug signalé par `front-developper` (chantier Contacts et Messagerie, PR #269) après vérification
+en conditions réelles contre la pile déployée : au moins deux `ForbiddenException` renvoyées par
+la route d'envoi de message (`POST /conversations/:id/messages`) étaient en anglais et remontaient
+telles quelles à l'écran :
+- `"You no longer have an active contact with {id} — messaging is closed"`
+- `"You do not have an active contact with user {id}"`
+
+Ceci viole la règle de langue du 2026-08-09 (`docs/architecture/identite-profils-acces.md`) :
+« les noms de champs, de variables et de cles d'API sont en anglais, mais **tout ce que
+l'utilisateur lit est en francais** — libelles de champs, intitules de sections, messages
+d'erreur, etats. »
+
+## Périmètre de la recherche
+
+Recherche exhaustive de `ForbiddenException`/`BadRequestException`/`NotFoundException`/
+`ConflictException`/`UnauthorizedException`/`ServiceUnavailableException` dans tout
+`services/communication-service/src` (hors `.spec.ts`), classement par message
+« destiné à un utilisateur final » vs « technique interne ».
+
+## Messages corrigés (avant → après)
+
+| Fichier | Avant (EN) | Après (FR) |
+|---|---|---|
+| `src/conversation/conversation.service.ts` (`create`) | `A conversation must include at least one other participant` | `Une conversation doit inclure au moins un autre participant` |
+| `src/conversation/conversation.service.ts` (`create`) | `` `You do not have an active contact with user ${inactiveContacts[0]}` `` (UUID exposé) | `Vous n'avez pas de contact actif avec l'une des personnes de cette conversation` (UUID retiré) |
+| `src/conversation/conversation.service.ts` (`sendMessage`) | `` `Conversation ${conversationId} not found` `` (UUID exposé) | `Conversation introuvable` |
+| `src/conversation/conversation.service.ts` (`sendMessage`) | `You are not a participant in this conversation` | `Vous ne participez pas à cette conversation` |
+| `src/conversation/conversation.service.ts` (`sendMessage`) | `` `You no longer have an active contact with ${inactiveContacts[0]} — messaging is closed` `` (UUID exposé — signalé par front-developper) | `Vous n'avez plus de contact actif avec cette personne — la messagerie est fermée` |
+| `src/conversation/conversation.service.ts` (`getMessages`) | `Conversation {UUID} not found`, `You are not a participant...` | `Conversation introuvable`, `Vous ne participez pas à cette conversation` |
+| `src/conversation/conversation.service.ts` (`markAsRead`) | `Message {UUID} not found`, `You are not a participant...` (signalé par front-developper) | `Message introuvable`, `Vous ne participez pas à cette conversation` |
+| `src/incident/incident.service.ts` (×2) | `` `Incident ${incidentId} not found` `` (UUID exposé) | `Incident introuvable` |
+| `src/contact/contact.service.ts` (`breakContact`) | `` `Contact ${contactId} not found` `` (UUID exposé) | `Contact introuvable` |
+| `src/contact/contact-request.service.ts` (`findOwnedIncomingRequest`) | `` `Contact request ${requestId} not found` `` (UUID exposé) | `Demande de contact introuvable` |
+| `src/common/guards/roles.guard.ts` | `Insufficient role` | `Votre rôle ne vous permet pas d'accéder à cette ressource.` — repris à l'identique du correctif déjà fait par `profile-service` sur le même bug |
+| `src/contact/clients/profile-service.client.ts` (×3) | `profile-service unavailable`, `profile-service: GET .../search-by-name is not available yet` | `profile-service injoignable`, `profile-service : GET .../search-by-name n'est pas encore disponible` — même convention que `content-catalog-service` |
+| `src/contact/clients/identity-access.client.ts` (×2) | `identity-access-service unavailable` | `identity-access-service injoignable` |
+
+Chaque message contenant un UUID a été purgé de cet identifiant plutôt que simplement traduit
+(règle du 2026-08-09 : aucun UUID ne doit être lu par un utilisateur — la présence d'un UUID dans
+un message d'exception HTTP est exactement ce type de fuite).
+
+## Volontairement non touché (hors périmètre)
+
+- `src/common/guards/jwt-auth.guard.ts` (`Missing or malformed Authorization header`,
+  `Invalid or expired token`, `Invalid token type`) et `src/common/guards/internal-secret.guard.ts`
+  (`Invalid internal secret`) : laissés en anglais, cohérent avec le précédent déjà posé par
+  `profile-service`, qui avait corrigé son `roles.guard.ts` identique sans toucher son
+  `jwt-auth.guard.ts` identique. `internal-secret.guard.ts` ne protège que des routes
+  `/internal/*` jamais exposées par `api-gateway` — aucun utilisateur ne peut l'atteindre.
+- Date ISO brute dans le message de cooldown de refus de contact
+  (`contact-request.service.ts:211`) : problème de format, pas de langue — hors périmètre de ce
+  correctif.
+- Messages de validation par défaut de `class-validator`/`ValidationPipe` (aucun DTO n'a de
+  message personnalisé, aucun `exceptionFactory` global) : restent en anglais. Constat transverse
+  aux 16 microservices du projet, pas une régression propre à ce service — signalé pour mémoire.
+
+## Tests
+
+- Recherche préalable (`grep`) sur `.message`/`toMatch`/`toContain`/`toBe` dans tous les fichiers
+  de test : aucune assertion ne portait sur le texte exact d'un message d'erreur, uniquement sur
+  les codes de statut HTTP. Aucune mise à jour de test nécessaire.
+- `npm run build` (nest build/tsc) : succès, aucune erreur.
+- `npm run test` : 17 tests unitaires, tous verts.
+- `npm run test:e2e` : 86 tests e2e, tous verts (Redis non disponible localement, erreurs de
+  connexion Redis loguées mais sans incidence — comportement dégradé déjà prévu par
+  `redis-client.provider.ts`, `lazyConnect: true` + `maxRetriesPerRequest` borné).
+
+## Documentation mise à jour
+
+- `docs/services/communication-service.md` : nouvelle section « Session — correctif messages
+  d'erreur en anglais (2026-09-05) » avec le tableau avant/après complet et la justification du
+  périmètre exclu.
+
+## Livraison
+
+- Branche `fix/communication-service-french-error-messages`, créée depuis `master` à jour
+  (commit `5fd4af8`).
+- Commit unique `622bd60` (message conventionnel `fix(communication-service): ...`).
+- PR #273 ouverte puis mergée en squash (merge via l'API GitHub, `gh pr merge` ayant échoué à
+  cause d'un conflit de checkout local avec un autre worktree ayant `master` déjà extrait — sans
+  incidence sur le résultat, le merge a été effectué directement via
+  `PUT /repos/.../pulls/273/merge`).
+- Branche distante supprimée après merge.
+- `origin/master` vérifié après merge : commit `eca28f6`, contenu confirmé sur
+  `roles.guard.ts` (`git show origin/master:...`).
+
+## Branches non fusionnées signalées (rappel, hors périmètre de cette tâche)
+
+`git branch --no-merged origin/master` (local) et `git branch -r --no-merged origin/master`
+(distant) montraient, au moment de la clôture de cette tâche, plusieurs branches locales au
+worktree isolé de l'agent (non présentes dans le dépôt principal) et les deux branches distantes
+déjà connues (`origin/feat/front-reprise-candidature-formateur`,
+`origin/feat/reprise-candidature-formateur`, travail réel inachevé de mi-août). Aucune de ces
+branches n'est liée à la présente tâche — signalement fait par prudence, sans action prise dessus.
+
+## Statut
+
+✅ Les deux messages signalés (et tous les autres messages d'exception en anglais destinés à un
+utilisateur final dans `communication-service`) sont traduits en français, deux UUID en ont été
+retirés au passage. PR #273 mergée sur `master`. Build + 17 tests unitaires + 86 tests e2e verts.
+
+## Note de reconciliation (orchestrateur)
+
+Ce rapport (Session 2) avait été rédigé par l'agent dans son worktree isolé mais **jamais
+committé** avant que le worktree ne soit nettoyé — seul le code (PR #273) et
+`docs/services/communication-service.md` avaient été poussés. Récupéré depuis le worktree avant
+suppression et reconcilié ici avec le rapport de la Session 1, qui partageait le même nom de
+fichier (collision de date). Aucune perte : le code et `docs/services/communication-service.md`
+étaient déjà corrects sur `master`, seul ce fichier de rapport manquait sa mise à jour.

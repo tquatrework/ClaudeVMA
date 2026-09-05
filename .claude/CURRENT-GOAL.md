@@ -161,13 +161,32 @@ supprimées : `feat/dashboard-notification-contacts-events`,
 `feat/profile-service-contact-events-and-name-search`,
 `fix/communication-service-identity-login-identifier`.
 
-**Reste à déléguer** :
-1. `front-developper` — écrans Contacts : recherche (identifiant exact / nom avec
-   désambiguïsation), demandes en attente, boutons accepter/refuser, messagerie conditionnée, et
-   libellés `notificationLabels.ts` pour les 3 nouveaux types (`contact_request_received`,
-   `contact_request_accepted`, `contact_request_declined`) — l'entrée de menu « Contacts » existe
-   déjà. **Déjà en cours au moment de cette entrée** (délégué en parallèle du correctif
-   `communication-service` ci-dessus).
+**`front-developper` mergé (PR #269 + #270/#271 docs), déployé, site vérifié `200`.** Écrans
+Contacts/Messagerie reconstruits sur le nouveau modèle `Contact` (recherche par identifiant exact
+et par nom avec désambiguïsation, demandes en attente reçues/envoyées avec accepter/refuser,
+liste des contacts actifs avec rupture volontaire confirmée, messagerie conditionnée à un contact
+actif), ancien modèle `ContactPolicy` retiré côté front. Vérifié en conditions réelles par le
+subagent avant merge, deux comptes de test frais : recherche, demande, acceptation, refus avec
+cooldown (message serveur exact affiché), rupture, re-demande après rupture, blocage asymétrique
+confirmé (celui qui a refusé reste libre de redemander dans l'autre sens). `tsc`/build propres,
++3 tests nets, mêmes 51 échecs pré-existants sans rapport (comparaison `git stash`), 0 régression.
+
+**Revérifié par l'orchestrateur après merge** : `docker compose up -d --build frontend` depuis
+`master` — a cascadé un redémarrage de toute la pile (`frontend` dépend de `api-gateway`, qui
+dépend des 16 microservices), bénin (recréation sans état, Postgres/Redis non touchés). Tous les
+conteneurs `healthy`, site `200`, `GET /api/v1/contacts/search/by-name` et `GET /api/v1/notifications`
+vérifiés `401` (pas `404`) via la passerelle.
+
+**Point ouvert signalé par le subagent, non corrigé** : `communication-service` renvoie deux
+messages d'erreur en anglais (`ForbiddenException` sur l'envoi de message vers un contact rompu ou
+non actif) — viole la règle du projet « tout ce que l'utilisateur lit est en français ». Le front
+les affiche tels quels (échec clair, pas de plantage) sans tenter de traduction côté front
+(le fichier `apiError.ts` reste volontairement en correspondance exacte pour ne pas masquer de
+vrais messages métier français) — le correctif revient à `communication-service`, pas au front.
+**À déléguer.**
+
+**Chantier Contacts et Messagerie (backend + notifications + front) clos**, sous réserve du point
+de traduction ci-dessus.
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

@@ -21,7 +21,7 @@ import EleveDashboardPage from '../../src/pages/EleveDashboardPage'
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/calendar')
 vi.mock('../../src/api/dashboardNotifications')
-vi.mock('../../src/api/communication')
+vi.mock('../../src/api/contacts')
 vi.mock('../../src/api/relations')
 vi.mock('../../src/api/profile')
 vi.mock('../../src/api/teacherRequests')
@@ -29,7 +29,7 @@ vi.mock('../../src/api/teacherRequests')
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchUserEvents } from '../../src/api/calendar'
 import { fetchNotifications } from '../../src/api/dashboardNotifications'
-import { fetchContacts } from '../../src/api/communication'
+import { fetchContacts } from '../../src/api/contacts'
 import { fetchTeacherStudentRelations } from '../../src/api/relations'
 import { fetchProfileAvatarBlob } from '../../src/api/profile'
 import { fetchTeacherRequests } from '../../src/api/teacherRequests'

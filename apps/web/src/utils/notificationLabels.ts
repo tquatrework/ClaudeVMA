@@ -24,6 +24,16 @@ const FALLBACK_TEACHER = 'un formateur'
 const FALLBACK_PROPOSER = 'un intervenant'
 const FALLBACK_INVITER = "Quelqu'un"
 const FALLBACK_TEXT = 'Nouvelle notification'
+const FALLBACK_REQUESTER = 'Quelqu\'un'
+const FALLBACK_CONTACT_TARGET = 'la personne sollicitée'
+
+function requesterLabel(metadata: NotificationMetadata | null | undefined): string {
+  return metadata?.requesterName?.trim() || FALLBACK_REQUESTER
+}
+
+function contactTargetLabel(metadata: NotificationMetadata | null | undefined): string {
+  return metadata?.targetName?.trim() || FALLBACK_CONTACT_TARGET
+}
 
 function studentLabel(metadata: NotificationMetadata | null | undefined): string {
   return metadata?.studentName?.trim() || FALLBACK_STUDENT
@@ -137,6 +147,19 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
     const scorePart = scoreLabel !== '—' ? ` — note : ${scoreLabel}` : ''
     return `Votre évaluation a été corrigée par ${teacher}${scorePart}`
   },
+
+  // Fonctionnalité Contacts (docs/architecture/contacts-messagerie.md, 2026-09-04,
+  // point 9). Destinataire de `contact_request_received` : la cible, celle qui doit
+  // accepter/refuser (jamais le demandeur). Destinataire de `contact_request_accepted`/
+  // `declined` : le demandeur d'origine, qui apprend l'issue de sa propre demande.
+  contact_request_received: (metadata) =>
+    `${requesterLabel(metadata)} souhaite vous ajouter en contact`,
+
+  contact_request_accepted: (metadata) =>
+    `${contactTargetLabel(metadata)} a accepté votre demande de contact`,
+
+  contact_request_declined: (metadata) =>
+    `${contactTargetLabel(metadata)} a refusé votre demande de contact`,
 }
 
 /**
@@ -199,6 +222,12 @@ const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_request_status_updated: '/teacher-requests',
   course_slot_proposed: '/calendar',
   event_invitation_received: '/calendar',
+  // Fonctionnalité Contacts (2026-09-04) : les trois types convergent vers /contacts,
+  // seul écran qui les rend actionnables (onglet "Demandes" pour l'entrante, onglet
+  // "Mes contacts" pour l'issue d'une demande envoyée).
+  contact_request_received: '/contacts',
+  contact_request_accepted: '/contacts',
+  contact_request_declined: '/contacts',
 }
 
 /** Route vers laquelle naviguer au clic sur une notification, ou `null` si aucune n'est définie. */

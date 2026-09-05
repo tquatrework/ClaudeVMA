@@ -1,7 +1,11 @@
 /**
- * Module API — communication-service (Phase 8)
- * Contacts autorisés, messagerie (conversations/messages), incidents et délégations.
+ * Module API — communication-service
+ * Messagerie (conversations/messages), incidents et délégations.
  * Toutes les requêtes passent par apiClient (base /api/v1).
+ *
+ * Les Contacts (refondus le 2026-09-04, voir docs/architecture/contacts-messagerie.md)
+ * vivent dans `api/contacts.ts` — extraits d'ici le 2026-09-05 pour rester sous la
+ * limite de 300 lignes une fois la refonte Contacts ajoutée.
  *
  * Écart signalé (non documenté dans docs/routes.md — comportement runtime préservé tel
  * quel, ne pas corriger ici) :
@@ -12,48 +16,37 @@
 
 import apiClient from './client'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type ContactStatus = 'active' | 'precontact'
-export type ContactVisibility = 'visible' | 'hidden'
-
-export interface Contact {
-  id: string
-  userId: string
-  email?: string
-  displayName?: string
-  role?: string
-  status: ContactStatus
-  mandatory: boolean
-  visibility?: ContactVisibility
-}
-
-export interface UpdateVisibilityPayload {
-  visibility: ContactVisibility
-}
+// ─── Types — Conversations et messages ─────────────────────────────────────────
 
 export interface Conversation {
   id: string
-  participantId?: string
-  participantEmail?: string
-  lastMessage?: string
-  unreadCount: number
+  participantIds: string[]
+  subject: string | null
+  isIncident: boolean
+  incidentId: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface Message {
   id: string
+  conversationId: string
   senderId: string
   content: string
-  read: boolean
-  createdAt: string
+  attachmentRef: string | null
+  isSystem: boolean
+  isRead: boolean
+  sentAt: string
 }
 
 export interface CreateConversationPayload {
-  participantId: string
+  participantIds: string[]
+  subject?: string
 }
 
 export interface SendMessagePayload {
   content: string
+  attachmentRef?: string
 }
 
 export type IncidentStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
@@ -96,42 +89,6 @@ export interface CreateDelegationPayload {
   reason: string
 }
 
-// ─── Contacts ─────────────────────────────────────────────────────────────────
-
-/**
- * GET /contacts — Lister les contacts autorisés (obligatoires + précontacts)
- */
-export async function fetchContacts(): Promise<Contact[]> {
-  const { data } = await apiClient.get<Contact[]>('/contacts')
-  return data
-}
-
-/**
- * POST /contacts/:id/activate — Activer un précontact
- */
-export async function activateContact(contactId: string): Promise<Contact> {
-  const { data } = await apiClient.post<Contact>(`/contacts/${contactId}/activate`)
-  return data
-}
-
-/**
- * DELETE /contacts/:id — Supprimer un contact actif (non obligatoire uniquement)
- */
-export async function deleteContact(contactId: string): Promise<void> {
-  await apiClient.delete(`/contacts/${contactId}`)
-}
-
-/**
- * PATCH /contacts/:id/visibility — Mettre à jour la visibilité d'un contact
- */
-export async function updateContactVisibility(
-  contactId: string,
-  payload: UpdateVisibilityPayload,
-): Promise<Contact> {
-  const { data } = await apiClient.patch<Contact>(`/contacts/${contactId}/visibility`, payload)
-  return data
-}
-
 // ─── Conversations ────────────────────────────────────────────────────────────
 
 /**
@@ -143,7 +100,9 @@ export async function fetchConversations(): Promise<Conversation[]> {
 }
 
 /**
- * POST /conversations — Créer une conversation
+ * POST /conversations — Créer une conversation entre contacts actifs.
+ * `participantIds` ne doit lister QUE les autres participants (jamais l'appelant
+ * lui-même) — le serveur l'ajoute automatiquement à la liste complète.
  */
 export async function createConversation(
   payload: CreateConversationPayload,
@@ -153,7 +112,9 @@ export async function createConversation(
 }
 
 /**
- * POST /conversations/:id/messages — Envoyer un message dans une conversation
+ * POST /conversations/:id/messages — Envoyer un message dans une conversation.
+ * Contact actif requis (sauf thread d'incident) — vérifié à chaque envoi, pas
+ * seulement à la création de la conversation.
  */
 export async function sendMessage(
   conversationId: string,

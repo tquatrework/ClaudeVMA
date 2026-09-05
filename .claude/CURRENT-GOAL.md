@@ -177,16 +177,29 @@ dépend des 16 microservices), bénin (recréation sans état, Postgres/Redis no
 conteneurs `healthy`, site `200`, `GET /api/v1/contacts/search/by-name` et `GET /api/v1/notifications`
 vérifiés `401` (pas `404`) via la passerelle.
 
-**Point ouvert signalé par le subagent, non corrigé** : `communication-service` renvoie deux
-messages d'erreur en anglais (`ForbiddenException` sur l'envoi de message vers un contact rompu ou
-non actif) — viole la règle du projet « tout ce que l'utilisateur lit est en français ». Le front
-les affiche tels quels (échec clair, pas de plantage) sans tenter de traduction côté front
-(le fichier `apiError.ts` reste volontairement en correspondance exacte pour ne pas masquer de
-vrais messages métier français) — le correctif revient à `communication-service`, pas au front.
-**À déléguer.**
+**`communication-service` : messages d'erreur traduits (PR #273, mergée).** Recherche étendue à
+tout le service (pas seulement les deux messages signalés) : tous les messages d'exception destinés
+à un utilisateur final passés en français, et 8 UUID retirés des messages au passage (règle du
+2026-08-09) — `Conversation introuvable`, `Contact introuvable`, `Vous n'avez plus de contact
+actif avec cette personne — la messagerie est fermée`, etc. Volontairement non touché : messages
+JWT/secret interne (jamais exposés à un utilisateur, même précédent que `profile-service`),
+messages de validation par défaut de `class-validator` (gap transverse aux 16 microservices,
+signalé pour mémoire, hors périmètre). 17 tests unitaires + 86 e2e verts, aucune assertion de test
+ne portait sur le texte exact des messages. **Revérifié par l'orchestrateur après merge** :
+`communication-service` redéployé depuis `master`, `healthy`, site `200`.
 
-**Chantier Contacts et Messagerie (backend + notifications + front) clos**, sous réserve du point
-de traduction ci-dessus.
+**Incident mineur de coordination, corrigé (PR #274)** : le rapport de cette tâche
+(`.claude/reports/communication-service-2026-09-05.md`) avait été rédigé par le subagent dans son
+worktree isolé mais jamais committé avant le nettoyage du worktree — seuls le code et
+`docs/services/communication-service.md` avaient été poussés (déjà corrects). Récupéré depuis le
+worktree avant suppression et reconcilié avec le rapport de la session précédente sur le même
+service (collision de nom de fichier `[service]-[date].md`, deux sessions le même jour) — aucune
+perte réelle, les deux rapports coexistent maintenant comme deux sections distinctes du même
+fichier. 6 branches locales laissées par les deux worktrees d'agents de cette journée, toutes
+vérifiées fichier par fichier comme entièrement fusionnées (`master` strict superset), supprimées.
+
+**Chantier Contacts et Messagerie (backend + notifications + front) entièrement clos.** Plus aucun
+point ouvert connu.
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

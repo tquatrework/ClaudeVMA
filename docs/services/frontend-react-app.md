@@ -3513,5 +3513,106 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-05" label="Écrans Contacts et messagerie (refonte 2026-09-04)">
+      <context>
+        Backend entièrement livré avant cette session : communication-service (modèle Contact
+        bidirectionnel + demandes + journal de refus + messagerie conditionnée),
+        profile-service (publication réelle des événements de relation + recherche par nom),
+        dashboard-notification-service (3 nouveaux types d'événements). Arbitrage complet dans
+        docs/architecture/contacts-messagerie.md. L'ancien modèle ContactPolicy
+        (précontact/mandatory/visibilité) a été retiré côté serveur — cette session reconstruit
+        entièrement les écrans front qui en dépendaient encore.
+      </context>
+
+      <tree>
+        <file path="apps/web/src/api/contacts.ts">
+          Nouveau. Contrat complet des Contacts : Contact, ContactRequest, ContactSearchResult,
+          fetchContacts, breakContact, searchContactByLoginIdentifier, searchContactByName,
+          fetchIncomingContactRequests, fetchOutgoingContactRequests, sendContactRequest,
+          acceptContactRequest, declineContactRequest. Extrait de api/communication.ts (qui
+          dépassait 300 lignes une fois la refonte ajoutée) — celui-ci ne porte plus que
+          conversations/messages/incidents/délégations.
+        </file>
+        <file path="apps/web/src/pages/ContactsPage.tsx">
+          Réécrite. Trois onglets (Tabs/TabPanel) : "Mes contacts" (liste active + rupture avec
+          confirmation), "Demandes" (reçues à accepter/refuser, envoyées en lecture seule),
+          "Trouver un contact" (recherche par nom ou identifiant de connexion).
+        </file>
+        <file path="apps/web/src/pages/MessagesPage.tsx">
+          Réécrite. Plus de saisie libre d'UUID de participant : une conversation démarre
+          toujours via location.state.startConversationWithUserId (bouton "Écrire"), ouverte si
+          elle existe déjà, créée sinon (POST /conversations {participantIds}).
+        </file>
+        <file path="apps/web/src/components/contacts/ContactRow.tsx">Réécrit pour le nouveau modèle Contact (counterpartName, status active/broken, origin default/request).</file>
+        <file path="apps/web/src/components/contacts/ContactSearchPanel.tsx">Nouveau. Recherche + envoi de demande, gestion 0/1/plusieurs résultats et du blocage 403 (message serveur affiché tel quel).</file>
+        <file path="apps/web/src/components/contacts/ContactRequestsPanel.tsx">Nouveau. Demandes entrantes (accepter/refuser) et sortantes (lecture seule).</file>
+        <file path="apps/web/src/hooks/communication/useContacts.ts">Nouveau. Liste + rupture d'un contact ; expose formatContactDisplayName (repli explicite, jamais un UUID).</file>
+        <file path="apps/web/src/hooks/communication/useContactRequests.ts">Nouveau. Demandes entrantes/sortantes + accepter/refuser.</file>
+        <file path="apps/web/src/hooks/communication/useContactSearch.ts">Nouveau. Recherche par nom/identifiant + envoi de demande, erreur par cible sollicitée.</file>
+        <file path="apps/web/src/hooks/communication/useMessages.ts">Réécrit. Résolution des noms de conversation depuis les contacts actifs ; startConversationWith (ouvre ou crée) ; champs alignés sur le contrat réel (isRead/sentAt, participantIds).</file>
+        <file path="apps/web/src/hooks/dashboard/useDashboardContacts.ts">Réécrit pour le nouveau modèle Contact.</file>
+        <file path="apps/web/src/types/dashboard.ts">DashboardContact réaligné (id, counterpartId, displayName) ; NotificationMetadata gagne requesterId/requesterName/targetId/targetName.</file>
+        <file path="apps/web/src/utils/notificationLabels.ts">3 nouveaux builders : contact_request_received/accepted/declined, tous vers /contacts.</file>
+        <file path="apps/web/src/components/ui/ImportantContacts.tsx">Le lien "Écrire" passe désormais startConversationWithUserId/Label en state ; retrait de role/email (absents du nouveau modèle).</file>
+      </tree>
+
+      <decisions>
+        <decision id="api-contacts-split">
+          <description>
+            api/communication.ts dépassait 300 lignes une fois les types/fonctions Contacts
+            ajoutés (352 lignes). Extraction en api/contacts.ts plutôt que de tolérer le
+            dépassement — découpage par domaine cohérent avec le reste du projet, aucun
+            appelant externe cassé (tous les imports mis à jour dans la même session).
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="blocked-request-ux">
+          <description>
+            Le serveur n'annonce jamais un blocage (cooldown/définitif) avant la tentative
+            d'envoi — seulement en 403 au moment de la demande (vérifié dans
+            ContactRequestService.assertNotBlocked). Le front ne peut donc pas désactiver le
+            bouton "Demander en contact" par anticipation ; il affiche le message métier
+            français du serveur juste après l'échec et désactive alors le bouton pour cette
+            cible, plutôt que de laisser retenter une action vouée à échouer.
+          </description>
+          <status>resolved</status>
+        </decision>
+      </decisions>
+
+      <openPoints>
+        <item id="communication-service-untranslated-forbidden-message">
+          Constaté en HTTP direct contre la production : quand un contact est rompu après la
+          création d'une conversation, POST /conversations/:id/messages répond 403 avec
+          `"You no longer have an active contact with {id} — messaging is closed"` — en
+          anglais, alors que la règle du projet (2026-08-09) exige que tout ce que
+          l'utilisateur lit soit en français. Même défaut sur POST /conversations
+          ("You do not have an active contact with user {id}"). Le front affiche ce message
+          tel quel (comportement clair, conforme à la demande "échoue clairement, ne plante
+          pas") mais ne l'a pas traduit : la correction propre revient à communication-service
+          (traduire ses ForbiddenException), pas à un patch du mécanisme partagé
+          utils/apiError.ts (qui utilise volontairement une liste exacte, pas un filtrage par
+          sous-chaîne, pour ne jamais écraser un message métier français légitime).
+        </item>
+      </openPoints>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès. `npx vitest run` comparé par
+        `git stash` : 51 échecs identiques avant/après (content-catalog, hors périmètre),
+        aucune régression, +3 tests nets (2199 passants après / 2196 avant).
+        **Vérifié en HTTP direct contre https://claudevma.visioprof.fr**, avec 2 comptes élève
+        créés pour l'occasion (POST /accounts/students) : recherche par nom
+        (GET /contacts/search/by-name) et par identifiant exact
+        (GET /contacts/search/by-login-identifier), envoi de demande (POST /contacts/requests),
+        acceptation (POST /contacts/requests/:id/accept), contact actif visible des deux côtés
+        (GET /contacts), création de conversation (POST /conversations {participantIds}),
+        envoi et lecture de message (POST/GET .../messages, PATCH /messages/:id/read), rupture
+        (POST /contacts/:id/break), fermeture immédiate de la messagerie après rupture (403),
+        re-demande possible après rupture (201), refus puis cooldown d'un mois (403, message
+        français affiché tel quel par le front), blocage confirmé asymétrique (la personne qui
+        a refusé reste libre de redemander dans l'autre sens). Toutes les formes de réponse
+        observées correspondent exactement aux types TypeScript écrits dans cette session.
+      </realStackVerification>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

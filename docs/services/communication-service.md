@@ -372,3 +372,99 @@ test/
    voir le point ouvert `NODE_ENV=development` dans `docs/architecture/rail-rp-et-points-ouverts.md`,
    qui s'applique potentiellement à ce service aussi, non vérifié spécifiquement ici) — combler ces
    trois tables par une migration dédiée reste un chantier séparé, hors périmètre de cette session.
+
+## Session — correctif fuite de republication de l'outbox (2026-09-05)
+
+Bug réel signalé par le subagent `dashboard-notification-service` (PR #264) après vérification en
+conditions réelles contre la pile déployée : `EventPublisherService` republiait indéfiniment les
+mêmes `eventId` sur le stream Redis `visiomath:events`, au lieu de ne les republier qu'au plus une
+fois en cas de crash (comportement prévu par l'arbitrage du 2026-08-14,
+`docs/architecture/cahier-texte-notifications-carnet.md`).
+
+### Diagnostic — investigation contre la pile réelle, pas seulement le code
+
+Le code source semblait correct à la lecture (`where: { publishedAt: null as unknown as Date }`,
+puis `XADD` suivi d'un `UPDATE ... published_at`). La cause réelle n'était visible qu'en observant
+la requête SQL réellement exécutée :
+
+1. `docker exec visiomath_postgres psql ... pg_stat_activity` a montré que la requête générée par
+   `this.domainEventRepository.find({ where: { publishedAt: null as unknown as Date }, ... })`
+   était en réalité `SELECT ... FROM domain_events ORDER BY occurred_at ASC LIMIT 20` — **sans
+   aucune clause WHERE**. Dans cette version de TypeORM (0.3.30), un littéral `null` passé
+   directement dans `FindOptionsWhere` est silencieusement ignoré (traité comme `undefined`,
+   condition supprimée) plutôt que traduit en `IS NULL`.
+2. Conséquence : chaque tick de la boucle de fond (toutes les 2s) reprenait les 20 lignes les plus
+   anciennes de la table, **publiées ou non**, et les republiait/re-timestampait toutes. Vérifié
+   sur le stream réel (`XRANGE visiomath:events`) : les 8 événements `ContactRequest*` existants
+   apparaissaient chacun **636 à 668 fois** dans le stream (5211 entrées sur ~5450 pour ces 8
+   `eventId` seuls), alors que les autres services n'avaient chacun qu'une entrée par événement.
+3. Le rythme observé (environ un événement republié toutes les ~1 à 5 secondes, pas les ~20 par
+   tick attendus) s'explique par la connexion Redis **partagée** entre `EventPublisherService`
+   (`XADD`) et `RelationEventConsumerService` (`XREADGROUP ... BLOCK 5000`, même client `ioredis`,
+   voir `redis-client.provider.ts`) : une commande bloquante en cours sur cette connexion sérialise
+   les `XADD` suivants derrière elle. Ce point n'est pas la cause du bug, seulement ce qui explique
+   le débit observé pendant l'investigation.
+
+### Correctif
+
+- `src/events/event-publisher.service.ts` : `where: { publishedAt: null as unknown as Date }` →
+  `where: { publishedAt: IsNull() }` (opérateur TypeORM réellement traduit en
+  `published_at IS NULL`). Requête vérifiée après correctif via `pg_stat_activity` : la clause
+  WHERE apparaît désormais dans le SQL exécuté.
+- Ajout d'un `catch` externe autour de la récupération du lot (`find()`) dans `publishPending()` :
+  auparavant, une erreur à cet endroit produisait un rejet de promesse non intercepté (silencieux,
+  aucune ligne de log), puisque `onModuleInit` appelle `void this.publishPending()`. Défensif
+  seulement — pas la cause du bug ci-dessus, mais un même défaut de visibilité aurait pu masquer un
+  futur problème similaire.
+
+### Correctif de données
+
+- **Aucune ligne de `domain_events` en état incohérent** : toutes les lignes historiques portaient
+  déjà un `published_at` non nul au moment de l'investigation (elles avaient bien fini par être
+  marquées publiées, le bug ne les laissait pas bloquées à `NULL` — il les republiait après coup).
+  Aucun correctif de données nécessaire sur cette table.
+- **Stream Redis `visiomath:events` réduit par `XTRIM ... MAXLEN ~ 500`** (de 5752 à 506 entrées) :
+  vérifié au préalable via `XINFO GROUPS visiomath:events` que les 4 groupes de consommateurs
+  existants (`communication-service`, `dashboard-notification-service`, `pedagogical-log-service`,
+  `video-session-service`) avaient tous `lag: 0` — aucune entrée supprimée n'était encore en
+  attente de lecture par un consommateur.
+
+### Vérification en conditions réelles
+
+Image reconstruite depuis le code corrigé, déployée sur `visiomath_communication` (remplace
+l'image tournant depuis le chantier Contacts du 2026-09-04) :
+
+1. Événement de sonde inséré avec `published_at NULL` → publié exactement une fois
+   (`published_at` horodaté ~13s après insertion, cohérent avec l'intervalle de 2s + latence de
+   connexion Redis partagée), jamais republié ensuite (vérifié après 15s d'observation
+   supplémentaire).
+2. Les 8 événements `ContactRequest*` déjà publiés avant le redéploiement (dernier horodatage de
+   republication juste avant l'arrêt de l'ancien conteneur) sont restés **figés** à leur dernier
+   `published_at` après le redémarrage avec le correctif — plus aucune écriture dessus.
+3. `XLEN visiomath:events` stable (5752, puis 506 après le `XTRIM`) sur une fenêtre d'observation
+   de 15s+, alors qu'avant le correctif il croissait en continu.
+
+### Tests
+
+- `test/e2e/event-publisher.e2e-spec.ts` **[ajouté]** — régression directe du bug : publie un
+  événement en attente et horodate `publishedAt` ; ne republie jamais un événement déjà marqué
+  publié même après plusieurs ticks ; sur un lot mixte, ne publie que les lignes réellement en
+  attente. Le client Redis partagé est stubbé (`overrideProvider(REDIS_CLIENT)`) — ce harnais e2e
+  ne fait tourner aucun Redis réel — et la boucle automatique (`setInterval`) est arrêtée juste
+  après le démarrage de l'app pour piloter `publishPending()` explicitement depuis les tests.
+  Piège rencontré en écrivant ce test : un mock `xreadgroup` qui résout immédiatement (au lieu de
+  bloquer comme le ferait Redis avec `BLOCK 5000`) fait tourner `RelationEventConsumerService` en
+  boucle serrée sans délai et sature le tas Jest en quelques secondes — corrigé en renvoyant une
+  promesse qui ne se résout jamais pendant la durée du test, simulant fidèlement un `BLOCK` sans
+  nouveau message.
+- Suite complète relancée : 17 tests unitaires + 86 tests e2e (dont les 3 nouveaux), tous verts.
+  `npm run build` (nest build/tsc) sans erreur.
+
+### Points en suspens
+
+- La sérialisation des commandes Redis derrière la connexion `XREADGROUP ... BLOCK 5000` partagée
+  (point 3 du diagnostic) reste vraie même après ce correctif : un `XADD` peut encore attendre
+  jusqu'à ~5s si un `BLOCK` est en cours sur la même connexion. Ce n'est pas un bug — la publication
+  reste asynchrone et non bloquante pour les requêtes HTTP — mais une connexion Redis dédiée par
+  usage (une pour `XADD`, une pour `XREADGROUP`) supprimerait cette latence si elle devenait
+  gênante. Non traité ici, hors périmètre du bug signalé.

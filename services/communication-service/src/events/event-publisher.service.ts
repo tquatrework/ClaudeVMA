@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import Redis from 'ioredis';
 import { randomUUID } from 'crypto';
 import { DomainEvent } from './entities/domain-event.entity';
@@ -65,8 +65,14 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
     if (this.publishing) return;
     this.publishing = true;
     try {
+      // Bug fixed 2026-09-05 (see docs/services/communication-service.md): a raw `null` literal
+      // here is silently dropped by this TypeORM version when building the WHERE clause — the
+      // query executed in production had *no* filter at all (`SELECT ... ORDER BY occurred_at
+      // ASC LIMIT 20`, verified via pg_stat_activity), so every tick re-published every row in
+      // the table, published or not, forever. `IsNull()` is the operator TypeORM actually
+      // translates into `published_at IS NULL`.
       const pending = await this.domainEventRepository.find({
-        where: { publishedAt: null as unknown as Date },
+        where: { publishedAt: IsNull() },
         order: { occurredAt: 'ASC' },
         take: PUBLISH_BATCH_SIZE,
       });
@@ -96,6 +102,12 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
           this.logger.error(`Failed to publish event ${event.id} (${event.eventName}): ${error}`);
         }
       }
+    } catch (error) {
+      // Defensive: a failure here (e.g. fetching the pending batch) used to be an unhandled
+      // promise rejection with zero logging, since `onModuleInit` fires this via
+      // `void this.publishPending()`. Surfacing it explicitly makes a future regression of this
+      // kind visible instead of silently starving the publisher loop.
+      this.logger.error(`Failed to fetch pending domain events: ${error}`);
     } finally {
       this.publishing = false;
     }

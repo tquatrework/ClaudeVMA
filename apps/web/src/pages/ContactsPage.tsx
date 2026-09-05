@@ -33,10 +33,13 @@ export default function ContactsPage() {
   const { contacts, isLoading, error, breakContact, breakingContactId, breakError } = useContacts()
 
   /**
-   * L'encart "Nouvelle demande" est visible pour les rôles impliqués dans le
-   * workflow demande professeur (élève, parent_financeur) ou qui gèrent des demandes (RP).
+   * Retiré le 2026-09-05 (docs/architecture/contacts-messagerie.md, "Retrait du raccourci
+   * « Demande de professeur » de la page Contacts") pour élève et parent_financeur : ce point
+   * d'entrée vit désormais uniquement dans le rail gauche (déjà présent côté élève, ajouté côté
+   * parent). L'encart reste affiché au RP, qui gère les demandes plutôt que d'en créer, et dont
+   * ce raccourci n'est pas concerné par l'arbitrage.
    */
-  const canMakeTeacherRequest = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
+  const canMakeTeacherRequest = hasRole('responsable_pedagogique')
 
   const handleStartConversation = (contact: Contact) => {
     navigate('/messages', {
@@ -72,9 +75,7 @@ export default function ContactsPage() {
             <div>
               <p className="font-semibold text-sm text-gray-900 mb-1">Faire une demande</p>
               <p className="text-xs text-gray-500">
-                {hasRole('responsable_pedagogique')
-                  ? 'Accéder aux demandes de professeur en attente de traitement.'
-                  : 'Demandez un professeur ou consultez vos demandes en cours.'}
+                Accéder aux demandes de professeur en attente de traitement.
               </p>
             </div>
             <Link

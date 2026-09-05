@@ -237,6 +237,12 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Démarches',
       items: [
         { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
+        // Ajouté le 2026-09-05 (docs/architecture/contacts-messagerie.md, « Retrait du
+        // raccourci "Demande de professeur" de la page Contacts ») : le parent n'avait
+        // jusqu'ici aucune entrée de rail équivalente à celle de l'élève, seul le raccourci
+        // (retiré) de la page Contacts y menait. Route et écran inchangés — même page que
+        // pour l'élève, qui gère déjà la sélection parmi plusieurs enfants financés.
+        { label: 'Demande de professeur', path: '/teacher-requests', icon: '🎓' },
       ],
     },
     {

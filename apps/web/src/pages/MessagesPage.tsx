@@ -1,21 +1,35 @@
+/**
+ * MessagesPage — messagerie entre contacts actifs.
+ * Réécrite le 2026-09-05 pour la refonte Contacts (docs/architecture/contacts-messagerie.md,
+ * 2026-09-04) : plus de saisie libre d'un UUID de participant — une conversation démarre
+ * toujours depuis un contact actif (bouton "Écrire" de ContactsPage/ImportantContacts, via
+ * `location.state`), et la messagerie échoue clairement (message serveur affiché tel quel)
+ * si le contact a été rompu depuis.
+ */
+
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Layout from '../components/Layout'
+import { useAuth } from '../hooks/useAuth'
 import { useMessages } from '../hooks/communication/useMessages'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { EmptyState } from '../components/ui/EmptyState'
 
 interface LocationState {
-  initialContactId?: string
-  initialContactLabel?: string
+  startConversationWithUserId?: string
+  startConversationWithLabel?: string
 }
 
 export default function MessagesPage() {
   const location = useLocation()
   const locationState = (location.state ?? {}) as LocationState
+  const { user } = useAuth()
 
   const {
     conversations,
     isLoadingConversations,
     conversationsError,
+    displayNameFor,
     selectedConversationId,
     messages,
     conversationError,
@@ -23,21 +37,32 @@ export default function MessagesPage() {
     sendMessage,
     isSending,
     sendError,
-    createConversation,
-    isCreatingConversation,
-    createConversationError,
-  } = useMessages()
+    startConversationWith,
+    isStartingConversation,
+    startConversationError,
+  } = useMessages(user?.id)
 
   const [newMessageContent, setNewMessageContent] = useState('')
-  const [isCreatingConv, setIsCreatingConv] = useState(!!locationState.initialContactId)
-  const [newConvParticipantId, setNewConvParticipantId] = useState(
-    locationState.initialContactId ?? '',
-  )
   const [isErrorDismissed, setIsErrorDismissed] = useState(false)
+  const [hasHandledInitialContact, setHasHandledInitialContact] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const error = conversationsError ?? conversationError ?? sendError
+  const error = conversationsError ?? conversationError ?? sendError ?? startConversationError
+
+  // Arrivée depuis "Écrire" (ContactsPage / ImportantContacts) : ouvre ou crée la
+  // conversation avec ce contact, une seule fois par navigation.
+  useEffect(() => {
+    if (hasHandledInitialContact) return
+    if (isLoadingConversations) return
+    if (!locationState.startConversationWithUserId) {
+      setHasHandledInitialContact(true)
+      return
+    }
+    setHasHandledInitialContact(true)
+    void startConversationWith(locationState.startConversationWithUserId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingConversations, hasHandledInitialContact])
 
   useEffect(() => {
     setIsErrorDismissed(false)
@@ -53,13 +78,12 @@ export default function MessagesPage() {
     if (sent) setNewMessageContent('')
   }
 
-  const handleCreateConversation = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const conversation = await createConversation(newConvParticipantId)
-    if (conversation) {
-      setNewConvParticipantId('')
-      setIsCreatingConv(false)
-    }
+  const otherParticipantOf = (participantIds: string[]): string | undefined =>
+    participantIds.find((id) => id !== user?.id)
+
+  const conversationLabel = (participantIds: string[]): string => {
+    const otherId = otherParticipantOf(participantIds)
+    return otherId ? displayNameFor(otherId) : 'Conversation'
   }
 
   const selectedConversation = conversations.find((conv) => conv.id === selectedConversationId)
@@ -67,81 +91,22 @@ export default function MessagesPage() {
   return (
     <Layout>
       <div className="max-w-4xl">
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Messagerie</h1>
-          <button
-            onClick={() => setIsCreatingConv(!isCreatingConv)}
-            className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
-          >
-            {isCreatingConv ? 'Annuler' : 'Nouvelle conversation'}
-          </button>
+          <p className="mt-1 text-sm text-gray-500">
+            Écrivez à vos contacts actifs. Pour démarrer une nouvelle conversation, utilisez le
+            bouton « Écrire » depuis la fiche d'un contact.
+          </p>
         </div>
 
         {error && !isErrorDismissed && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
-            <span>{error}</span>
-            <button
-              onClick={() => setIsErrorDismissed(true)}
-              className="text-red-400 hover:text-red-600 ml-3"
-            >
-              ✕
-            </button>
-          </div>
+          <ErrorMessage message={error} onClose={() => setIsErrorDismissed(true)} className="mb-4" />
         )}
 
-        {/* Create conversation panel */}
-        {isCreatingConv && (
-          <form
-            onSubmit={handleCreateConversation}
-            className="mb-5 bg-white border border-gray-200 rounded-xl p-5 space-y-3 shadow-sm"
-          >
-            <h2 className="text-sm font-semibold text-gray-800">Nouvelle conversation</h2>
-            <p className="text-xs text-gray-500">
-              Vous pouvez uniquement démarrer une conversation avec un contact autorisé.
-            </p>
-            {locationState.initialContactLabel && (
-              <p className="text-xs text-indigo-700 font-medium">
-                Contact sélectionné : {locationState.initialContactLabel}
-              </p>
-            )}
-            {createConversationError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {createConversationError}
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                ID du participant <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={newConvParticipantId}
-                onChange={(e) => setNewConvParticipantId(e.target.value)}
-                placeholder="UUID du contact autorisé"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={isCreatingConversation || !newConvParticipantId.trim()}
-                className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isCreatingConversation ? 'Création…' : 'Démarrer la conversation'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCreatingConv(false)
-                  setNewConvParticipantId('')
-                }}
-                className="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
+        {locationState.startConversationWithLabel && isStartingConversation && (
+          <p className="mb-4 text-sm text-gray-400">
+            Ouverture de la conversation avec {locationState.startConversationWithLabel}…
+          </p>
         )}
 
         <div className="flex gap-4 h-[580px]">
@@ -155,14 +120,12 @@ export default function MessagesPage() {
             <div className="flex-1 overflow-y-auto">
               {isLoadingConversations && <p className="p-4 text-gray-400 text-sm">Chargement…</p>}
               {!isLoadingConversations && conversations.length === 0 && (
-                <div className="p-4 text-center">
-                  <p className="text-gray-400 text-sm">Aucune conversation</p>
-                  <button
-                    onClick={() => setIsCreatingConv(true)}
-                    className="mt-2 text-xs text-indigo-600 hover:underline"
-                  >
-                    En créer une
-                  </button>
+                <div className="p-4">
+                  <EmptyState
+                    message="Aucune conversation. Écrivez à un contact depuis la page Contacts."
+                    actionLabel="Voir mes contacts"
+                    actionPath="/contacts"
+                  />
                 </div>
               )}
               {conversations.map((conv) => (
@@ -176,17 +139,8 @@ export default function MessagesPage() {
                   }`}
                 >
                   <p className="text-sm font-medium text-gray-800 truncate">
-                    {conv.participantEmail ??
-                      (conv.participantId ? `${conv.participantId.slice(0, 10)}…` : 'Conversation')}
+                    {conv.isIncident ? 'Incident TI' : conversationLabel(conv.participantIds)}
                   </p>
-                  {conv.lastMessage && (
-                    <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage}</p>
-                  )}
-                  {conv.unreadCount > 0 && (
-                    <span className="mt-1 inline-block text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full">
-                      {conv.unreadCount}
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
@@ -197,7 +151,6 @@ export default function MessagesPage() {
             {!selectedConversationId ? (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm gap-2">
                 <span>Sélectionnez une conversation</span>
-                <span className="text-xs text-gray-300">ou créez-en une nouvelle</span>
               </div>
             ) : (
               <>
@@ -205,10 +158,9 @@ export default function MessagesPage() {
                 {selectedConversation && (
                   <div className="px-4 py-3 border-b border-gray-100">
                     <p className="text-sm font-medium text-gray-800">
-                      {selectedConversation.participantEmail ??
-                        (selectedConversation.participantId
-                          ? `${selectedConversation.participantId.slice(0, 12)}…`
-                          : 'Conversation')}
+                      {selectedConversation.isIncident
+                        ? 'Incident TI'
+                        : conversationLabel(selectedConversation.participantIds)}
                     </p>
                   </div>
                 )}
@@ -220,23 +172,33 @@ export default function MessagesPage() {
                       Aucun message dans cette conversation
                     </p>
                   )}
-                  {messages.map((m) => (
-                    <div key={m.id} className="flex flex-col items-start">
+                  {messages.map((m) => {
+                    const isOwnMessage = m.senderId === user?.id
+                    return (
                       <div
-                        className={`rounded-lg px-3 py-2 text-sm max-w-sm ${
-                          m.read ? 'bg-gray-100 text-gray-800' : 'bg-indigo-100 text-gray-900 font-medium'
-                        }`}
+                        key={m.id}
+                        className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
                       >
-                        {m.content}
+                        <div
+                          className={`rounded-lg px-3 py-2 text-sm max-w-sm ${
+                            isOwnMessage
+                              ? 'bg-indigo-600 text-white'
+                              : m.isRead
+                                ? 'bg-gray-100 text-gray-800'
+                                : 'bg-indigo-100 text-gray-900 font-medium'
+                          }`}
+                        >
+                          {m.content}
+                        </div>
+                        <span className="text-xs text-gray-400 mt-0.5">
+                          {new Date(m.sentAt).toLocaleTimeString('fr-FR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
                       </div>
-                      <span className="text-xs text-gray-400 mt-0.5">
-                        {new Date(m.createdAt).toLocaleTimeString('fr-FR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
 

@@ -80,6 +80,13 @@ export interface NotificationMetadata {
   score?: number | string | null
   /** `evaluation_corrected` — commentaire du correcteur, optionnel. */
   comment?: string | null
+  /** Demande de contact (`contact_request_received`/`accepted`/`declined`) — noms déjà
+   * résolus par dashboard-notification-service, jamais un UUID. `requestId` (déjà déclaré
+   * plus haut) est réutilisé, réservé à un usage futur de lien profond. */
+  requesterId?: string
+  requesterName?: string | null
+  targetId?: string
+  targetName?: string | null
 }
 
 export interface DashboardNotification {
@@ -93,13 +100,20 @@ export interface DashboardNotification {
   createdAt: string
 }
 
+/**
+ * Contact actif affiché dans une carte de tableau de bord ("Contacts importants").
+ * `id` sert à naviguer vers la messagerie (bouton "Écrire") — jamais affiché comme
+ * libellé. `counterpartId` est l'identifiant de la personne, nécessaire pour
+ * démarrer une conversation (`useMessages.startConversationWith`).
+ *
+ * Réaligné le 2026-09-05 sur le modèle Contact réel de communication-service
+ * (docs/architecture/contacts-messagerie.md, 2026-09-04) : `role`/`email`/`mandatory`
+ * n'existent plus côté serveur, retirés.
+ */
 export interface DashboardContact {
   id: string
-  displayName?: string
-  role?: string
-  email?: string
-  status: string
-  mandatory: boolean
+  counterpartId: string
+  displayName: string
 }
 
 export interface DashboardReminder {

@@ -195,43 +195,55 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
 // ---------------------------------------------------------------------------
 // Journey 3: Dashboard → Contacts → Écrire → Envoi message
 //
-// Depuis la fusion « Contacts » + « Messages » en une seule entrée de menu du
-// haut (2026-09-04, demande explicite utilisateur), il n'existe plus de lien
-// « Messages » direct : l'envoi de message se fait désormais depuis l'écran
-// Contacts, via le bouton « Écrire » d'une fiche contact (ContactRow →
-// navigate('/messages', { state: { initialContactId, initialContactLabel } })).
+// Depuis la refonte Contacts du 2026-09-04 (docs/architecture/contacts-messagerie.md),
+// le Contact est une entité propre à communication-service ({id, counterpartId,
+// counterpartName, status, origin}), et le bouton « Écrire » d'une fiche contact
+// navigue vers /messages avec `{ startConversationWithUserId, startConversationWithLabel }`
+// — la conversation est ouverte si elle existe déjà, sinon créée automatiquement
+// (POST /conversations {participantIds: [counterpartId]}).
 // ---------------------------------------------------------------------------
 describe('Journey 3: Dashboard → Contacts → Écrire → Envoi message', () => {
   it('navigates from dashboard to contacts, starts a conversation and sends a message', async () => {
-    const contacts = [
-      {
-        id: 'contact-1',
-        userId: 'teacher-1',
-        email: 'formateur@test.com',
-        displayName: 'Camille Formateur',
-        role: 'formateur',
-        status: 'active' as const,
-        mandatory: true,
-      },
-    ]
-    const conversations = [
-      { id: 'conv-1', participantEmail: 'formateur@test.com', unreadCount: 0 },
-    ]
+    const contact = {
+      id: 'contact-1',
+      counterpartId: 'teacher-1',
+      counterpartName: { firstName: 'Camille', lastName: 'Formateur' },
+      status: 'active' as const,
+      origin: 'default' as const,
+      createdAt: new Date().toISOString(),
+      brokenAt: null,
+    }
+    const newConversation = {
+      id: 'conv-new',
+      participantIds: ['student-1', 'teacher-1'],
+      subject: null,
+      isIncident: false,
+      incidentId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
     const sentMessage = {
       id: 'msg-1',
+      conversationId: 'conv-new',
       senderId: 'student-1',
       content: 'Bonjour !',
-      read: false,
-      createdAt: new Date().toISOString(),
+      attachmentRef: null,
+      isSystem: false,
+      isRead: false,
+      sentAt: new Date().toISOString(),
     }
 
     mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/contacts') return Promise.resolve({ data: contacts })
-      if (url === '/conversations') return Promise.resolve({ data: conversations })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
+      if (url === '/contacts') return Promise.resolve({ data: [contact] })
+      if (url === '/conversations') return Promise.resolve({ data: [] })
+      if (url === '/messages/conversation/conv-new') return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
     })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: sentMessage })
+    mockApiClient.post = vi.fn().mockImplementation((url: string) => {
+      if (url === '/conversations') return Promise.resolve({ data: newConversation })
+      if (url === '/conversations/conv-new/messages') return Promise.resolve({ data: sentMessage })
+      return Promise.resolve({ data: {} })
+    })
 
     render(
       <MemoryRouter initialEntries={['/dashboard/eleve']}>
@@ -257,15 +269,14 @@ describe('Journey 3: Dashboard → Contacts → Écrire → Envoi message', () =
     })
     await userEvent.click(screen.getByRole('button', { name: /écrire/i }))
 
-    // Lands on /messages with conversations already loaded
+    // Lands on /messages, creates the conversation automatically and selects it
     await waitFor(() => {
-      expect(screen.getByText('formateur@test.com')).toBeDefined()
+      expect(mockApiClient.post).toHaveBeenCalledWith('/conversations', {
+        participantIds: ['teacher-1'],
+      })
     })
 
-    // Select the conversation
-    await userEvent.click(screen.getByText('formateur@test.com'))
-
-    // Wait for message input to appear
+    // Wait for message input to appear (conversation auto-selected)
     await waitFor(() => {
       screen.getByPlaceholderText('Votre message…')
     })
@@ -274,7 +285,7 @@ describe('Journey 3: Dashboard → Contacts → Écrire → Envoi message', () =
     await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/conversations/conv-1/messages', {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/conversations/conv-new/messages', {
         content: 'Bonjour !',
       })
     })

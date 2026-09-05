@@ -40,16 +40,15 @@ export function ImportantContacts({ contacts, isLoading }: ImportantContactsProp
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[color:var(--color-ink)] m-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {contact.displayName ?? contact.email ?? 'Contact'}
+                  {contact.displayName}
                 </p>
-                {contact.role && (
-                  <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0">
-                    {contact.role}
-                  </p>
-                )}
               </div>
               <Link
                 to="/messages"
+                state={{
+                  startConversationWithUserId: contact.counterpartId,
+                  startConversationWithLabel: contact.displayName,
+                }}
                 className="text-[11px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[3px] px-2 no-underline shrink-0"
               >
                 Écrire

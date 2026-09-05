@@ -1,24 +1,36 @@
-import React, { useEffect, useState } from 'react'
+/**
+ * ContactsPage — mes contacts, demandes de contact et recherche.
+ * Réécrite le 2026-09-05 pour la refonte Contacts (docs/architecture/contacts-messagerie.md,
+ * 2026-09-04) : le Contact est désormais une entité propre à communication-service, avec
+ * un cycle de vie demande → acceptée/refusée, distincte des relations métier de
+ * profile-service.
+ */
+
+import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import {
-  fetchContacts,
-  activateContact,
-  deleteContact,
-  updateContactVisibility,
-  type Contact,
-  type ContactVisibility,
-} from '../api/communication'
+import type { Contact } from '../api/contacts'
+import { useContacts } from '../hooks/communication/useContacts'
 import { ContactRow } from '../components/contacts/ContactRow'
+import { ContactRequestsPanel } from '../components/contacts/ContactRequestsPanel'
+import { ContactSearchPanel } from '../components/contacts/ContactSearchPanel'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { EmptyState } from '../components/ui/EmptyState'
+import { Tabs, TabPanel } from '../components/ui/Tabs'
+import { formatContactDisplayName } from '../hooks/communication/useContacts'
+
+const TABS = [
+  { id: 'contacts', label: 'Mes contacts' },
+  { id: 'requests', label: 'Demandes' },
+  { id: 'search', label: 'Trouver un contact' },
+]
 
 export default function ContactsPage() {
   const navigate = useNavigate()
   const { hasRole } = useAuth()
-  const [contactList, setContactList] = useState<Contact[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState('contacts')
+  const { contacts, isLoading, error, breakContact, breakingContactId, breakError } = useContacts()
 
   /**
    * L'encart "Nouvelle demande" est visible pour les rôles impliqués dans le
@@ -27,96 +39,38 @@ export default function ContactsPage() {
   const canMakeTeacherRequest = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
 
   const handleStartConversation = (contact: Contact) => {
-    navigate('/messages', { state: { initialContactId: contact.userId, initialContactLabel: contact.displayName ?? contact.email } })
-  }
-
-  useEffect(() => {
-    fetchContacts()
-      .then((contacts) => setContactList(contacts))
-      .catch(() => setErrorMessage('Impossible de charger les contacts'))
-      .finally(() => setIsLoading(false))
-  }, [])
-
-  const markContactAsPending = (contactId: string) => {
-    setPendingActionIds((prev) => new Set(prev).add(contactId))
-  }
-
-  const unmarkContactAsPending = (contactId: string) => {
-    setPendingActionIds((prev) => {
-      const updated = new Set(prev)
-      updated.delete(contactId)
-      return updated
+    navigate('/messages', {
+      state: {
+        startConversationWithUserId: contact.counterpartId,
+        startConversationWithLabel: formatContactDisplayName(contact),
+      },
     })
   }
 
-  const handleActivateContact = async (contactId: string) => {
-    markContactAsPending(contactId)
-    try {
-      const activatedContact = await activateContact(contactId)
-      setContactList((prev) =>
-        prev.map((contact) => (contact.id === contactId ? activatedContact : contact)),
-      )
-    } catch {
-      setErrorMessage("Impossible d'activer ce contact")
-    } finally {
-      unmarkContactAsPending(contactId)
+  const handleBreakContact = (contactId: string) => {
+    const contact = contacts.find((candidate) => candidate.id === contactId)
+    const label = contact ? formatContactDisplayName(contact) : 'ce contact'
+    if (!window.confirm(`Rompre le contact avec ${label} ? Vous pourrez le redemander plus tard.`)) {
+      return
     }
+    void breakContact(contactId)
   }
-
-  const handleDeleteContact = async (contactId: string) => {
-    markContactAsPending(contactId)
-    try {
-      await deleteContact(contactId)
-      setContactList((prev) => prev.filter((contact) => contact.id !== contactId))
-    } catch {
-      setErrorMessage('Impossible de supprimer ce contact')
-    } finally {
-      unmarkContactAsPending(contactId)
-    }
-  }
-
-  const handleVisibilityChange = async (contactId: string, newVisibility: ContactVisibility) => {
-    markContactAsPending(contactId)
-    try {
-      const updatedContact = await updateContactVisibility(contactId, {
-        visibility: newVisibility,
-      })
-      setContactList((prev) =>
-        prev.map((contact) => (contact.id === contactId ? updatedContact : contact)),
-      )
-    } catch {
-      setErrorMessage('Impossible de mettre à jour la visibilité')
-    } finally {
-      unmarkContactAsPending(contactId)
-    }
-  }
-
-  const mandatoryContacts = contactList.filter((contact) => contact.mandatory)
-  const precontacts = contactList.filter(
-    (contact) => !contact.mandatory && contact.status === 'precontact',
-  )
-  const activeOptionalContacts = contactList.filter(
-    (contact) => !contact.mandatory && contact.status === 'active',
-  )
 
   return (
     <Layout>
       <div className="max-w-3xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Contacts autorisés</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Gérez vos contacts de messagerie. Les contacts obligatoires ne peuvent pas être
-            supprimés.
+            Retrouvez vos contacts actifs, gérez vos demandes et trouvez de nouvelles personnes à
+            ajouter.
           </p>
         </div>
 
-        {/* Encart "Nouvelle demande" — visible pour les rôles concernés par le workflow professeur */}
         {canMakeTeacherRequest && (
           <div className="bg-white border border-gray-200 rounded-xl px-6 py-5 mb-6 flex items-center justify-between gap-4 shadow-sm">
             <div>
-              <p className="font-semibold text-sm text-gray-900 mb-1">
-                Faire une demande
-              </p>
+              <p className="font-semibold text-sm text-gray-900 mb-1">Faire une demande</p>
               <p className="text-xs text-gray-500">
                 {hasRole('responsable_pedagogique')
                   ? 'Accéder aux demandes de professeur en attente de traitement.'
@@ -132,95 +86,43 @@ export default function ContactsPage() {
           </div>
         )}
 
-        {errorMessage && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
-            <span>{errorMessage}</span>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-red-400 hover:text-red-600 ml-3"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} ariaLabel="Onglets de contacts" />
 
-        {isLoading && (
-          <div className="py-8 text-center text-gray-400 text-sm">Chargement des contacts…</div>
-        )}
+        <TabPanel tabId="contacts" activeTab={activeTab}>
+          {breakError && <ErrorMessage message={breakError} className="mb-4" />}
+          {error && <ErrorMessage message={error} className="mb-4" />}
+          {isLoading && (
+            <p className="py-8 text-center text-gray-400 text-sm">Chargement des contacts…</p>
+          )}
+          {!isLoading && !error && contacts.length === 0 && (
+            <EmptyState
+              message="Vous n'avez pas encore de contact actif."
+              actionLabel="Trouver un contact"
+              onAction={() => setActiveTab('search')}
+            />
+          )}
+          {!isLoading && contacts.length > 0 && (
+            <ul className="space-y-2">
+              {contacts.map((contact) => (
+                <ContactRow
+                  key={contact.id}
+                  contact={contact}
+                  isBreaking={breakingContactId === contact.id}
+                  onBreak={handleBreakContact}
+                  onStartConversation={handleStartConversation}
+                />
+              ))}
+            </ul>
+          )}
+        </TabPanel>
 
-        {!isLoading && contactList.length === 0 && (
-          <div className="py-8 text-center text-gray-400 text-sm">Aucun contact disponible</div>
-        )}
+        <TabPanel tabId="requests" activeTab={activeTab}>
+          <ContactRequestsPanel />
+        </TabPanel>
 
-        {!isLoading && contactList.length > 0 && (
-          <div className="space-y-6">
-            {/* Contacts obligatoires */}
-            {mandatoryContacts.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Contacts obligatoires
-                </h2>
-                <ul className="space-y-2">
-                  {mandatoryContacts.map((contact) => (
-                    <ContactRow
-                      key={contact.id}
-                      contact={contact}
-                      isPending={pendingActionIds.has(contact.id)}
-                      onActivate={handleActivateContact}
-                      onDelete={handleDeleteContact}
-                      onVisibilityChange={handleVisibilityChange}
-                      onStartConversation={handleStartConversation}
-                    />
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {/* Précontacts */}
-            {precontacts.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Précontacts (en attente d'activation)
-                </h2>
-                <ul className="space-y-2">
-                  {precontacts.map((contact) => (
-                    <ContactRow
-                      key={contact.id}
-                      contact={contact}
-                      isPending={pendingActionIds.has(contact.id)}
-                      onActivate={handleActivateContact}
-                      onDelete={handleDeleteContact}
-                      onVisibilityChange={handleVisibilityChange}
-                      onStartConversation={handleStartConversation}
-                    />
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {/* Contacts actifs optionnels */}
-            {activeOptionalContacts.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Contacts actifs
-                </h2>
-                <ul className="space-y-2">
-                  {activeOptionalContacts.map((contact) => (
-                    <ContactRow
-                      key={contact.id}
-                      contact={contact}
-                      isPending={pendingActionIds.has(contact.id)}
-                      onActivate={handleActivateContact}
-                      onDelete={handleDeleteContact}
-                      onVisibilityChange={handleVisibilityChange}
-                      onStartConversation={handleStartConversation}
-                    />
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
-        )}
+        <TabPanel tabId="search" activeTab={activeTab}>
+          <ContactSearchPanel />
+        </TabPanel>
       </div>
     </Layout>
   )

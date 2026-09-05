@@ -1,17 +1,22 @@
 /**
- * Tests for ContactsPage — Phase 8 communication-service
+ * Tests for ContactsPage — refonte Contacts (docs/architecture/contacts-messagerie.md,
+ * 2026-09-04). Remplace intégralement l'ancienne suite écrite pour le modèle ContactPolicy
+ * (précontact/mandatory/visibilité), qui n'existe plus côté serveur.
  *
  * Covers:
- * 1. Student sees mandatory contacts and cannot remove them
- * 2. Student activates a precontact
- * 3. Removing a contact closes the conversation (contact disparaît de la liste)
- * 4. Visibility preference updates contact rights (PATCH /contacts/:id/visibility)
+ * 1. "Mes contacts" — liste les contacts actifs, avec noms résolus (jamais un UUID)
+ * 2. "Mes contacts" — rompre un contact (avec confirmation) appelle POST /contacts/:id/break
+ * 3. "Demandes" — accepter une demande reçue appelle POST /contacts/requests/:id/accept
+ * 4. "Demandes" — refuser une demande reçue appelle POST /contacts/requests/:id/decline
+ * 5. "Demandes" — les demandes envoyées sont affichées en lecture seule avec leur statut
+ * 6. "Trouver un contact" — recherche par nom puis envoi d'une demande
+ * 7. États vide / erreur
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import ContactsPage from '../../src/pages/ContactsPage'
 
 vi.mock('../../src/hooks/useAuth')
@@ -46,37 +51,39 @@ function renderContacts() {
   )
 }
 
-const MANDATORY_CONTACT = {
-  id: 'contact-mandatory-1',
-  userId: 'rp-user-1',
-  email: 'rp@visiomath.fr',
-  displayName: 'Responsable Pédagogique',
-  role: 'responsable_pedagogique',
-  status: 'active' as const,
-  mandatory: true,
-  visibility: 'visible' as const,
-}
-
-const PRECONTACT = {
-  id: 'contact-pre-1',
-  userId: 'teacher-user-1',
-  email: 'prof@test.com',
-  displayName: 'M. Dupont',
-  role: 'formateur',
-  status: 'precontact' as const,
-  mandatory: false,
-  visibility: 'visible' as const,
-}
-
-const ACTIVE_OPTIONAL_CONTACT = {
+const ACTIVE_CONTACT = {
   id: 'contact-active-1',
-  userId: 'parent-user-1',
-  email: 'parent@test.com',
-  displayName: 'Parent Martin',
-  role: 'parent_financeur',
+  counterpartId: 'teacher-user-1',
+  counterpartName: { firstName: 'Camille', lastName: 'Formateur' },
   status: 'active' as const,
-  mandatory: false,
-  visibility: 'visible' as const,
+  origin: 'default' as const,
+  createdAt: '2026-09-01T00:00:00.000Z',
+  brokenAt: null,
+}
+
+const INCOMING_REQUEST = {
+  id: 'request-in-1',
+  counterpartId: 'parent-user-1',
+  counterpartName: { firstName: 'Alex', lastName: 'Martin' },
+  status: 'pending' as const,
+  createdAt: '2026-09-02T00:00:00.000Z',
+  respondedAt: null,
+}
+
+const OUTGOING_REQUEST = {
+  id: 'request-out-1',
+  counterpartId: 'teacher-user-2',
+  counterpartName: { firstName: 'Dana', lastName: 'Petit' },
+  status: 'pending' as const,
+  createdAt: '2026-09-03T00:00:00.000Z',
+  respondedAt: null,
+}
+
+function mockGetByUrl(map: Record<string, unknown>) {
+  mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+    if (url in map) return Promise.resolve({ data: map[url] })
+    return Promise.reject(new Error(`Unmocked GET ${url}`))
+  })
 }
 
 beforeEach(() => {
@@ -84,155 +91,259 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue(AUTH_USER)
 })
 
-describe('ContactsPage', () => {
-  // Spec 1 — Un contact mandatory: true n'a pas de bouton "Supprimer"
-  it('student sees mandatory contacts and cannot remove them', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: [MANDATORY_CONTACT, ACTIVE_OPTIONAL_CONTACT],
-    })
+describe('ContactsPage — Mes contacts', () => {
+  it('affiche les contacts actifs avec un nom résolu, jamais un UUID', async () => {
+    mockGetByUrl({ '/contacts': [ACTIVE_CONTACT] })
 
     renderContacts()
 
     await waitFor(() => {
-      expect(screen.getByText('Responsable Pédagogique')).toBeDefined()
+      expect(screen.getByText('Camille Formateur')).toBeDefined()
     })
-
-    // Le contact obligatoire est affiché avec le badge "Obligatoire"
-    expect(screen.getByText('Obligatoire')).toBeDefined()
-
-    // Il ne doit y avoir qu'un seul bouton "Supprimer" (pour le contact optionnel)
-    // et le contact obligatoire ne doit PAS en avoir un
-    const deleteButtons = screen.queryAllByRole('button', { name: /supprimer/i })
-    expect(deleteButtons).toHaveLength(1)
-
-    // Vérifier que le bouton Supprimer affiché est bien pour le contact optionnel
-    // en cliquant dessus et vérifiant que DELETE est appelé avec le bon id
-    mockApiClient.delete = vi.fn().mockResolvedValue({ data: {} })
-    await userEvent.click(deleteButtons[0])
-
-    await waitFor(() => {
-      expect(mockApiClient.delete).toHaveBeenCalledWith('/contacts/contact-active-1')
-    })
-    // Le contact obligatoire n'a pas été supprimé
-    expect(mockApiClient.delete).not.toHaveBeenCalledWith('/contacts/contact-mandatory-1')
+    expect(screen.queryByText('teacher-user-1')).toBeNull()
   })
 
-  // Spec 2 — Clic sur "Activer" appelle POST /contacts/:id/activate
-  it('student activates a precontact', async () => {
-    const activatedContact = { ...PRECONTACT, status: 'active' as const }
-
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [PRECONTACT] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: activatedContact })
+  it('rompt un contact après confirmation, qui disparaît de la liste', async () => {
+    mockGetByUrl({ '/contacts': [ACTIVE_CONTACT] })
+    mockApiClient.post = vi.fn().mockResolvedValue({
+      data: { ...ACTIVE_CONTACT, status: 'broken', brokenAt: '2026-09-05T00:00:00.000Z' },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     renderContacts()
 
     await waitFor(() => {
-      expect(screen.getByText('M. Dupont')).toBeDefined()
+      expect(screen.getByText('Camille Formateur')).toBeDefined()
     })
 
-    // Le badge "Précontact" est visible
-    expect(screen.getByText('Précontact')).toBeDefined()
-
-    // Cliquer sur "Activer"
-    const activateButton = screen.getByRole('button', { name: /activer/i })
-    await userEvent.click(activateButton)
+    await userEvent.click(screen.getByRole('button', { name: /rompre/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/contacts/contact-pre-1/activate')
+      expect(mockApiClient.post).toHaveBeenCalledWith('/contacts/contact-active-1/break')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Camille Formateur')).toBeNull()
     })
   })
 
-  // Spec 3 — DELETE /contacts/:id est appelé et le contact disparaît de la liste
-  it('removing a contact closes the conversation', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [ACTIVE_OPTIONAL_CONTACT] })
-    mockApiClient.delete = vi.fn().mockResolvedValue({ data: {} })
+  it("n'appelle pas l'API si la confirmation est annulée", async () => {
+    mockGetByUrl({ '/contacts': [ACTIVE_CONTACT] })
+    mockApiClient.post = vi.fn()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     renderContacts()
 
     await waitFor(() => {
-      expect(screen.getByText('Parent Martin')).toBeDefined()
+      expect(screen.getByText('Camille Formateur')).toBeDefined()
     })
 
-    // Supprimer le contact
-    const deleteButton = screen.getByRole('button', { name: /supprimer/i })
-    await userEvent.click(deleteButton)
+    await userEvent.click(screen.getByRole('button', { name: /rompre/i }))
 
-    await waitFor(() => {
-      expect(mockApiClient.delete).toHaveBeenCalledWith('/contacts/contact-active-1')
-    })
-
-    // Le contact doit avoir disparu de la liste
-    await waitFor(() => {
-      expect(screen.queryByText('Parent Martin')).toBeNull()
-    })
+    expect(mockApiClient.post).not.toHaveBeenCalled()
   })
 
-  // Spec 4 (visibility) — PATCH /contacts/:id/visibility est appelé quand la visibilité change
-  it('visibility preference updates contact rights', async () => {
-    const updatedContact = { ...ACTIVE_OPTIONAL_CONTACT, visibility: 'hidden' as const }
-
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [ACTIVE_OPTIONAL_CONTACT] })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: updatedContact })
+  it('affiche un état vide quand aucun contact actif', async () => {
+    mockGetByUrl({ '/contacts': [] })
 
     renderContacts()
 
     await waitFor(() => {
-      expect(screen.getByText('Parent Martin')).toBeDefined()
-    })
-
-    // Changer la visibilité via le select
-    const visibilitySelect = screen.getByLabelText(/visibilité de parent martin/i)
-    await userEvent.selectOptions(visibilitySelect, 'hidden')
-
-    await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/contacts/contact-active-1/visibility',
-        { visibility: 'hidden' },
-      )
+      expect(screen.getByText(/pas encore de contact actif/i)).toBeDefined()
     })
   })
 
-  // Test de rendu général
-  it('shows empty state when no contacts exist', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+  it('affiche une erreur si le chargement échoue', async () => {
+    // Statut sans message métier ni mapping dédié (getErrorMessage) : retombe sur le
+    // message de secours fourni par useContacts.
+    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 418 } })
 
     renderContacts()
 
     await waitFor(() => {
-      expect(screen.getByText('Aucun contact disponible')).toBeDefined()
+      expect(screen.getByText(/impossible de charger vos contacts/i)).toBeDefined()
     })
   })
+})
 
-  it('shows error message when contacts fail to load', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+describe('ContactsPage — Demandes', () => {
+  it('accepte une demande reçue, qui disparaît de la liste des demandes en attente', async () => {
+    mockGetByUrl({
+      '/contacts': [],
+      '/contacts/requests/incoming': [INCOMING_REQUEST],
+      '/contacts/requests/outgoing': [],
+    })
+    mockApiClient.post = vi.fn().mockResolvedValue({
+      data: { ...INCOMING_REQUEST, status: 'accepted', respondedAt: '2026-09-04T00:00:00.000Z' },
+    })
 
     renderContacts()
 
+    await userEvent.click(screen.getByRole('tab', { name: 'Demandes' }))
+
     await waitFor(() => {
-      expect(screen.getByText('Impossible de charger les contacts')).toBeDefined()
+      expect(screen.getByText('Alex Martin')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /accepter/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/contacts/requests/request-in-1/accept')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Alex Martin')).toBeNull()
     })
   })
 
-  it('shows precontact badge and activate button for precontacts', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [PRECONTACT] })
+  it('refuse une demande reçue', async () => {
+    mockGetByUrl({
+      '/contacts': [],
+      '/contacts/requests/incoming': [INCOMING_REQUEST],
+      '/contacts/requests/outgoing': [],
+    })
+    mockApiClient.post = vi.fn().mockResolvedValue({
+      data: { ...INCOMING_REQUEST, status: 'declined', respondedAt: '2026-09-04T00:00:00.000Z' },
+    })
 
     renderContacts()
 
+    await userEvent.click(screen.getByRole('tab', { name: 'Demandes' }))
+
     await waitFor(() => {
-      expect(screen.getByText('Précontact')).toBeDefined()
-      expect(screen.getByRole('button', { name: /activer/i })).toBeDefined()
+      expect(screen.getByText('Alex Martin')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /refuser/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/contacts/requests/request-in-1/decline')
     })
   })
 
-  it('does not show delete button for precontacts', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [PRECONTACT] })
+  it('affiche les demandes envoyées en lecture seule, avec leur statut', async () => {
+    mockGetByUrl({
+      '/contacts': [],
+      '/contacts/requests/incoming': [],
+      '/contacts/requests/outgoing': [OUTGOING_REQUEST],
+    })
 
     renderContacts()
 
+    await userEvent.click(screen.getByRole('tab', { name: 'Demandes' }))
+
     await waitFor(() => {
-      expect(screen.getByText('M. Dupont')).toBeDefined()
+      expect(screen.getByText('Dana Petit')).toBeDefined()
+    })
+    expect(screen.getByText('En attente')).toBeDefined()
+    // Lecture seule : pas de bouton accepter/refuser pour une demande sortante.
+    expect(screen.queryByRole('button', { name: /accepter/i })).toBeNull()
+  })
+})
+
+describe('ContactsPage — Trouver un contact', () => {
+  it('recherche par nom puis envoie une demande de contact', async () => {
+    mockGetByUrl({ '/contacts': [] })
+    mockApiClient.get = vi.fn().mockImplementation((url: string, config?: { params?: Record<string, string> }) => {
+      if (url === '/contacts') return Promise.resolve({ data: [] })
+      if (url === '/contacts/search/by-name' && config?.params?.q === 'Dana') {
+        return Promise.resolve({
+          data: { results: [{ userId: 'user-uuid-9', firstName: 'Dana', lastName: 'Petit', loginIdentifier: 'dana.petit' }] },
+        })
+      }
+      return Promise.reject(new Error(`Unmocked GET ${url}`))
+    })
+    mockApiClient.post = vi.fn().mockResolvedValue({
+      data: {
+        id: 'request-new-1',
+        counterpartId: 'user-uuid-9',
+        counterpartName: { firstName: 'Dana', lastName: 'Petit' },
+        status: 'pending',
+        createdAt: '2026-09-05T00:00:00.000Z',
+        respondedAt: null,
+      },
     })
 
-    expect(screen.queryByRole('button', { name: /supprimer/i })).toBeNull()
+    renderContacts()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Trouver un contact' }))
+
+    await userEvent.type(screen.getByPlaceholderText(/camille durand/i), 'Dana')
+    await userEvent.click(screen.getByRole('button', { name: /rechercher/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Dana Petit')).toBeDefined()
+      expect(screen.getByText('dana.petit')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /demander en contact/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/contacts/requests', { targetId: 'user-uuid-9' })
+    })
+    // Le bouton passe à "Demande envoyée" et se désactive — requête via getByRole
+    // (getByText échouerait sur plusieurs correspondances : le texte d'introduction du
+    // panneau contient lui aussi la phrase "demande envoyée").
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /demande envoyée/i })).toBeDisabled()
+    })
   })
+
+  it("affiche un message clair quand l'envoi échoue à cause d'un blocage (403)", async () => {
+    mockGetByUrl({ '/contacts': [] })
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/contacts') return Promise.resolve({ data: [] })
+      if (url === '/contacts/search/by-name') {
+        return Promise.resolve({
+          data: { results: [{ userId: 'user-uuid-9', firstName: 'Dana', lastName: 'Petit', loginIdentifier: 'dana.petit' }] },
+        })
+      }
+      return Promise.reject(new Error(`Unmocked GET ${url}`))
+    })
+    mockApiClient.post = vi.fn().mockRejectedValue({
+      response: {
+        status: 403,
+        data: { message: 'Cette personne a refusé votre demande à plusieurs reprises : vous ne pouvez plus la solliciter' },
+      },
+    })
+
+    renderContacts()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Trouver un contact' }))
+    await userEvent.type(screen.getByPlaceholderText(/camille durand/i), 'Dana')
+    await userEvent.click(screen.getByRole('button', { name: /rechercher/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Dana Petit')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /demander en contact/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/refusé votre demande à plusieurs reprises/i)).toBeDefined()
+    })
+    // Le bouton reste désactivé après ce refus explicite du serveur.
+    expect(screen.getByRole('button', { name: /demander en contact/i })).toBeDisabled()
+  })
+
+  it('recherche sans résultat affiche un message explicite, pas une erreur', async () => {
+    mockGetByUrl({ '/contacts': [] })
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/contacts') return Promise.resolve({ data: [] })
+      if (url === '/contacts/search/by-name') return Promise.resolve({ data: { results: [] } })
+      return Promise.reject(new Error(`Unmocked GET ${url}`))
+    })
+
+    renderContacts()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Trouver un contact' }))
+    await userEvent.type(screen.getByPlaceholderText(/camille durand/i), 'Personne Inconnue')
+    await userEvent.click(screen.getByRole('button', { name: /rechercher/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/aucune personne trouvée/i)).toBeDefined()
+    })
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })

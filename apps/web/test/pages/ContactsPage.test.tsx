@@ -344,6 +344,58 @@ describe('ContactsPage — Trouver un contact', () => {
   })
 })
 
+describe('ContactsPage — raccourci "Demande de professeur" (retiré le 2026-09-05)', () => {
+  it("n'affiche plus le raccourci pour l'élève", async () => {
+    mockUseAuth.mockReturnValue({
+      ...AUTH_USER,
+      hasRole: vi.fn((...roles: string[]) => roles.includes('eleve')),
+    })
+    mockGetByUrl({ '/contacts': [] })
+
+    renderContacts()
+
+    await waitFor(() => {
+      expect(screen.getByText(/pas encore de contact actif/i)).toBeDefined()
+    })
+    expect(screen.queryByText('Faire une demande')).toBeNull()
+    expect(screen.queryByRole('link', { name: /nouvelle demande/i })).toBeNull()
+  })
+
+  it("n'affiche plus le raccourci pour le parent financeur", async () => {
+    mockUseAuth.mockReturnValue({
+      ...AUTH_USER,
+      hasRole: vi.fn((...roles: string[]) => roles.includes('parent_financeur')),
+    })
+    mockGetByUrl({ '/contacts': [] })
+
+    renderContacts()
+
+    await waitFor(() => {
+      expect(screen.getByText(/pas encore de contact actif/i)).toBeDefined()
+    })
+    expect(screen.queryByText('Faire une demande')).toBeNull()
+    expect(screen.queryByRole('link', { name: /nouvelle demande/i })).toBeNull()
+  })
+
+  it('reste affiché pour le responsable pédagogique, non concerné par le retrait', async () => {
+    mockUseAuth.mockReturnValue({
+      ...AUTH_USER,
+      hasRole: vi.fn((...roles: string[]) => roles.includes('responsable_pedagogique')),
+    })
+    mockGetByUrl({ '/contacts': [] })
+
+    renderContacts()
+
+    await waitFor(() => {
+      expect(screen.getByText('Faire une demande')).toBeDefined()
+    })
+    expect(screen.getByRole('link', { name: /nouvelle demande/i })).toHaveProperty(
+      'pathname',
+      '/teacher-requests',
+    )
+  })
+})
+
 afterEach(() => {
   vi.restoreAllMocks()
 })

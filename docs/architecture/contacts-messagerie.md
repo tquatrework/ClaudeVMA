@@ -115,3 +115,87 @@
       `front-developper` : l'entrée de menu « Contacts » existe déjà et a déjà absorbé
       « Messages » (chantier menu du 2026-09-04, voir `.claude/CURRENT-GOAL.md` à cette date) —
       ce chantier construit ce qu'il y a *derrière* cette entrée, pas un nouveau point de menu.
+
+- Rattrapage des contacts par défaut pour les utilisateurs déjà en base, et nouveau contact par
+  défaut professeur↔RP. Arbitrage rendu le 2026-09-05, sur constat direct de l'utilisateur après
+  premier usage réel : un élève et son professeur déjà liés avant le lancement de ce chantier
+  n'apparaissent pas dans la liste de contacts l'un de l'autre.
+
+  1. **Cause racine, cohérente avec le mécanisme déjà posé au point 4 ci-dessus** : les contacts
+     par défaut sont créés par `communication-service` en consommant les événements de relation
+     publiés par `profile-service` sur `visiomath:events` (`TeacherLinkedToStudent`,
+     `StudentLinkedToFinanceOwner`, etc., PR #260 du 2026-09-04). Ce mécanisme ne fonctionne que
+     pour les relations créées **après** sa mise en service — toute relation déjà présente en
+     base avant cette date n'a jamais émis d'événement et n'a donc jamais eu de contact par défaut
+     créé. Même famille de défaut que les formateurs déjà inscrits non rattrapés lors de la mise en
+     place de la validation RP (2026-08-12) ou les forums déjà existants non rattrapés lors de la
+     structure en sujets (2026-09-04) : un mécanisme *event-driven* ne couvre jamais, par
+     construction, ce qui existait déjà avant sa mise en service — un rattrapage explicite est
+     systématiquement nécessaire.
+  2. **Rattrapage retenu : `profile-service` réinjecte un événement historique par relation
+     existante dans son propre outbox (`domain_events`)**, plutôt que `communication-service`
+     n'aille interroger directement les tables de relations de `profile-service` (violerait le
+     principe déjà posé que `communication-service` ne duplique jamais les relations comme source
+     de vérité, il ne fait que consommer des événements). Concrètement : pour chaque ligne active
+     de `TeacherStudentLink`, `FinanceOwnerStudentLink` (et l'inverse déjà couvert par le même
+     lien), une ligne `domain_events` est insérée avec le type d'événement correspondant et
+     `published_at NULL`, si aucun événement de ce type n'existe déjà pour cette paire — le
+     balayeur `EventPublisherService` déjà en place les publie alors normalement sur
+     `visiomath:events`, et le consommateur déjà construit côté `communication-service` les
+     traite sans aucun changement de code. Réutilise entièrement le pipeline existant plutôt que
+     d'en construire un second pour le cas historique.
+  3. **Périmètre du rattrapage, confirmé par l'utilisateur** : parent↔élève
+     (`StudentLinkedToFinanceOwner`), professeur↔élève (`TeacherLinkedToStudent`), et
+     parent↔professeur (lien dérivé, calculé comme au point 4 ci-dessus à partir des deux liens
+     élève↔parent et élève↔formateur déjà rattrapés) — trois des quatre paires déjà spécifiées au
+     point 4. La quatrième (AP↔formateurs animés, `AnimatorLinkedToTeacher`) suit exactement le
+     même mécanisme de rattrapage, non mentionnée explicitement par l'utilisateur mais couverte par
+     cohérence — aucune raison de laisser cette paire seule non rattrapée alors que le mécanisme
+     est générique.
+  4. **Nouveau contact par défaut, non prévu par l'arbitrage initial : professeur ↔ RP.** Demandé
+     explicitement par l'utilisateur, en plus des trois paires de rattrapage. Ce n'est pas une
+     relation individuelle déjà modélisée par `profile-service` (contrairement aux trois autres
+     paires) — il n'existe pas de lien "ce professeur est suivi par ce RP précis" dans ce projet,
+     seulement un rôle RP. **Mécanisme retenu, proposition de l'orchestrateur non confirmée mot
+     pour mot par l'utilisateur** — à corriger si l'intention différait : diffusion, sur le même
+     principe déjà utilisé ailleurs dans ce projet pour un rôle sans annuaire nominatif
+     (`TeacherRequestCreated → role RP`, 2026-08-14) — **tout compte de rôle `professeur` obtient
+     un contact par défaut avec tout compte de rôle `responsable_pedagogique`**, et
+     réciproquement. Comme il n'existe aujourd'hui que peu de comptes RP sur cette plateforme, une
+     diffusion complète (produit cartésien professeur × RP) reste un mécanisme simple et peu
+     coûteux ; à revoir si le nombre de RP devait croître significativement.
+  5. **Ce contact professeur↔RP doit fonctionner aussi bien en rattrapage (comptes déjà en base)
+     qu'en continu (nouveaux comptes créés après ce chantier)** — à la différence des trois autres
+     paires qui bénéficient déjà d'un mécanisme continu via les événements de relation existants,
+     rien ne couvre aujourd'hui la création d'un nouveau compte professeur ou RP pour ce cas
+     précis. `identity-access-service` publie déjà `AccountCreated` (voir `docs/microservices.md`,
+     `eventsPublished` de `identity-access-service`) — à vérifier si cet événement porte déjà le
+     rôle et transite réellement par le même outbox `visiomath:events` (non confirmé, à vérifier
+     par lecture du code réel plutôt que supposé) ; si oui, `communication-service` peut s'y
+     abonner pour le cas continu sans mécanisme supplémentaire. Le rattrapage des comptes déjà
+     existants reste de toute façon nécessaire indépendamment de ce mécanisme continu.
+  6. **Séquencement de la délégation** : `profile-service` d'abord (rattrapage des 4 paires de
+     relations existantes par réinjection dans son propre outbox) ; `communication-service`
+     ensuite, en parallèle si le contrat ne change pas côté profile-service (mécanisme
+     professeur↔RP : rattrapage des comptes existants + vérification/branchement sur
+     `AccountCreated` pour le cas continu, en coordination avec `identity-access-service` si ce
+     dernier doit adapter son événement).
+
+- Retrait du raccourci « Demande de professeur » de la page Contacts, et ajout de l'entrée de rail
+  correspondante pour les parents. Arbitrage rendu le 2026-09-05, sur constat de l'utilisateur :
+  les élèves et les parents ont aujourd'hui, en haut de la page Contacts, un raccourci vers la
+  demande de professeur — à retirer, ce point d'entrée devant exister uniquement dans le rail
+  gauche.
+  1. **Le rail gauche élève porte déjà une entrée « Demande de professeur »** — rien à construire
+     de ce côté, seul le raccourci de la page Contacts est concerné pour ce rôle.
+  2. **Les parents n'ont aujourd'hui aucune entrée de rail équivalente** — à créer, positionnée
+     sous (à proximité immédiate de) l'entrée existante « Demande de rattachement » du rail
+     parent. Confirmé par l'utilisateur après clarification explicite de l'ambiguïté initiale
+     (« professeurs » dans l'énoncé original était une coquille pour « parents »).
+  3. **Aucun changement de comportement métier** — la demande de professeur déjà existante pour
+     un élève doit rester consultable/actionnable pour son parent financeur exactement comme
+     aujourd'hui (le parent a déjà un droit de vue sur tout ce qui concerne ses élèves, sauf le
+     carnet personnel, arbitrage du 2026-08-09) ; seul le point d'entrée change de forme et
+     d'emplacement.
+  4. **Délégué à `front-developper` seul** — aucun changement backend, `teacher-request-service`
+     n'est pas concerné.

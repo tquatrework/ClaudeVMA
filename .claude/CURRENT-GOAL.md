@@ -7,6 +7,40 @@
 
 ## Besoin courant
 
+Deux compléments au chantier Contacts et Messagerie (clos le 2026-09-05), demandés le même jour
+après premier usage réel par l'utilisateur.
+
+**Point 1 — contacts par défaut non activés pour les utilisateurs déjà en base.** Exemple observé :
+`eleve.sixiem` a `professeur.lycee` comme professeur, mais ne l'a pas dans sa liste de contacts.
+Cause : le mécanisme de contacts par défaut ne réagit qu'aux événements de relation publiés
+**après** sa mise en service (2026-09-04) — les relations déjà existantes en base n'ont jamais émis
+d'événement. Rattrapage à faire pour parent↔élève, professeur↔élève, parent↔professeur (lien
+dérivé), et par cohérence AP↔formateurs animés. **Nouveau contact par défaut, non prévu
+initialement : professeur↔RP** (diffusion professeur × RP, aucun lien individuel n'existe pour ce
+cas dans `profile-service`) — à la fois en rattrapage et en continu pour les futurs comptes.
+Arbitrage complet persisté dans `docs/architecture/contacts-messagerie.md` ("Rattrapage des
+contacts par défaut...").
+
+Séquencement : `profile-service` d'abord (réinjection d'événements historiques dans son propre
+outbox pour les 4 paires de relations existantes — réutilise tel quel le pipeline outbox→Redis déjà
+en place, aucun changement côté `communication-service` nécessaire pour ces 4 paires) ;
+`communication-service` ensuite, en parallèle si le contrat ne change pas (mécanisme professeur↔RP :
+rattrapage des comptes existants + branchement sur `AccountCreated` d'`identity-access-service`
+pour le cas continu, à vérifier avant de supposer son contrat).
+
+**Point 2 — retrait du raccourci "Demande de professeur" de la page Contacts.** Élèves et parents
+ont aujourd'hui ce raccourci en haut de la page Contacts, à retirer : ce point d'entrée doit exister
+uniquement dans le rail gauche. Il existe déjà pour les élèves. **Confirmé par l'utilisateur après
+clarification** (l'énoncé initial disait "professeurs", coquille pour "parents") : à créer pour les
+parents, sous l'entrée de rail existante "Demande de rattachement". Aucun changement backend, front
+seul. Arbitrage complet persisté dans `docs/architecture/contacts-messagerie.md` ("Retrait du
+raccourci « Demande de professeur »...").
+
+Délégué le 2026-09-05, en parallèle : `profile-service` et `communication-service` (point 1),
+`front-developper` (point 2).
+
+---
+
 Contacts et Messagerie, demandé le 2026-09-04. Toute personne peut demander n'importe qui en
 contact (par identifiant de connexion exact, ou par prénom/nom avec désambiguïsation par
 identifiant en cas d'homonymes) ; l'autre partie doit explicitement accepter ou refuser (jamais

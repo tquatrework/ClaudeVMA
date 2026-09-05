@@ -38,10 +38,10 @@ export class IdentityAccessClient {
       response = await fetch(url.toString(), { headers: this.headers() });
     } catch (error) {
       this.logger.warn(`identity-access-service call failed: ${error}`);
-      throw new ServiceUnavailableException('identity-access-service unavailable');
+      throw new ServiceUnavailableException('identity-access-service injoignable');
     }
     if (response.status === 404) return null;
-    if (!response.ok) throw new ServiceUnavailableException('identity-access-service unavailable');
+    if (!response.ok) throw new ServiceUnavailableException('identity-access-service injoignable');
     return response.json();
   }
 }

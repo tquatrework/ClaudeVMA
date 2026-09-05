@@ -65,7 +65,7 @@ export class IncidentService {
    */
   async updateStatus(incidentId: string, dto: UpdateIncidentStatusDto): Promise<IncidentThread> {
     const incident = await this.incidentThreadRepository.findOne({ where: { id: incidentId } });
-    if (!incident) throw new NotFoundException(`Incident ${incidentId} not found`);
+    if (!incident) throw new NotFoundException('Incident introuvable');
 
     incident.status = dto.status;
     return this.incidentThreadRepository.save(incident);
@@ -86,7 +86,7 @@ export class IncidentService {
    */
   async findOne(id: string): Promise<IncidentThread> {
     const incident = await this.incidentThreadRepository.findOne({ where: { id } });
-    if (!incident) throw new NotFoundException(`Incident ${id} not found`);
+    if (!incident) throw new NotFoundException('Incident introuvable');
     return incident;
   }
 }

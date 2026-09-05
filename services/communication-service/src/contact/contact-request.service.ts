@@ -181,7 +181,7 @@ export class ContactRequestService {
     const contactRequest = await this.contactRequestRepository.findOne({
       where: { id: requestId, targetId: actorId },
     });
-    if (!contactRequest) throw new NotFoundException(`Contact request ${requestId} not found`);
+    if (!contactRequest) throw new NotFoundException('Demande de contact introuvable');
     return contactRequest;
   }
 

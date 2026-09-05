@@ -44,7 +44,7 @@ export class ProfileServiceClient {
     const response = await this.safeFetch(`${this.baseUrl()}/internal/profiles/${userId}/display-name`);
     if (!response) return null;
     if (response.status === 404) return null;
-    if (!response.ok) throw new ServiceUnavailableException('profile-service unavailable');
+    if (!response.ok) throw new ServiceUnavailableException('profile-service injoignable');
     return response.json();
   }
 
@@ -101,10 +101,10 @@ export class ProfileServiceClient {
     const response = await this.safeFetch(url.toString());
     if (!response) {
       throw new ServiceUnavailableException(
-        'profile-service: GET /internal/profiles/search-by-name is not available yet',
+        'profile-service : GET /internal/profiles/search-by-name n\'est pas encore disponible',
       );
     }
-    if (!response.ok) throw new ServiceUnavailableException('profile-service unavailable');
+    if (!response.ok) throw new ServiceUnavailableException('profile-service injoignable');
     const body = await response.json();
     return body.results ?? [];
   }

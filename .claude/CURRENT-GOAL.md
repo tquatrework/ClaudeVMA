@@ -144,13 +144,34 @@ seulement une fois après un crash comme prévu par l'arbitrage du 2026-08-14), 
 démarrage les routes `/notifications`, `/notifications/unread-count`, `/internal/notify`
 mappées ; site vérifié `200`.
 
+**`communication-service` : bug de republication corrigé (PR #266 + #267 docs, mergées).** Cause
+racine trouvée par lecture de la requête SQL réellement exécutée (`pg_stat_activity`) : TypeORM
+0.3.30 ignore silencieusement `where: { publishedAt: null as unknown as Date }` (littéral `null`
+traité comme `undefined`, clause supprimée) — chaque tick de 2s republiait donc les 20 lignes les
+plus anciennes de `domain_events`, publiées ou non. Les 8 événements `ContactRequest*` avaient été
+republiés 636 à 668 fois chacun (~5750 entrées sur `visiomath:events`). Corrigé par `IsNull()` ;
+aucune ligne en base n'était réellement incohérente (toutes déjà marquées publiées) — seul le
+stream Redis a été rétabli (`XTRIM ... MAXLEN ~500`, tous les groupes de consommateurs vérifiés
+`lag: 0` avant troncature). 17 tests unitaires + 86 e2e verts, vérifié en conditions réelles par le
+subagent avant merge (probe publié une seule fois, jamais retouché). **Revérifié par
+l'orchestrateur après merge** : `communication-service` redéployé depuis `master`, `healthy`, site
+`200`. 3 branches distantes confirmées entièrement fusionnées (contenu vérifié fichier par fichier,
+pas supposé — seules divergences : sections de doc déjà remplacées par des commits ultérieurs)
+supprimées : `feat/dashboard-notification-contacts-events`,
+`feat/profile-service-contact-events-and-name-search`,
+`fix/communication-service-identity-login-identifier`.
+
 **Reste à déléguer** :
-1. `communication-service` — corriger la republication indéfinie du même `eventId` (bug ci-dessus).
-2. `front-developper` — écrans Contacts : recherche (identifiant exact / nom avec
+1. `front-developper` — écrans Contacts : recherche (identifiant exact / nom avec
    désambiguïsation), demandes en attente, boutons accepter/refuser, messagerie conditionnée, et
    libellés `notificationLabels.ts` pour les 3 nouveaux types (`contact_request_received`,
    `contact_request_accepted`, `contact_request_declined`) — l'entrée de menu « Contacts » existe
-   déjà.
+   déjà. **Déjà en cours au moment de cette entrée** (délégué en parallèle du correctif
+   `communication-service` ci-dessus).
+
+Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
+`feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
+inachevé de mi-août, jamais implémenté.
 
 ---
 

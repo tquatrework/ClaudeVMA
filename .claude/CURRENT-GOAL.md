@@ -122,11 +122,35 @@ passe connu, non trivial à obtenir depuis l'orchestrateur) — preuve retenue :
 sur le contrat réel + redéploiement propre, cohérent avec le niveau de preuve déjà accepté sur ce
 projet pour des correctifs internes sans changement de contrat visible.
 
-Les trois blocages du chantier Contacts sont maintenant tous levés. **Reste à déléguer** :
-`dashboard-notification-service` (nouveaux types d'événements Contacts —
-`ContactRequestCreated`/`Accepted`/`Declined`, déjà émis par `communication-service`) puis
-`front-developper` (écrans : recherche, demandes en attente, boutons accepter/refuser,
-messagerie — l'entrée de menu « Contacts » existe déjà).
+Les trois blocages du chantier Contacts sont maintenant tous levés.
+
+**`dashboard-notification-service` mergé (PR #264), déployé, vérifié en conditions réelles par le
+subagent avant merge** (comptes de test frais, flux create→accept et create→decline réels contre
+`https://claudevma.visioprof.fr`, `GET /notifications` confirmant exactement une notification par
+destinataire attendu, noms résolus, aucun UUID affiché). Consomme `ContactRequestCreated` (→
+`targetId` seul) et `ContactRequestAccepted`/`Declined` (→ `requesterId` seul) sur
+`visiomath:events`, même pattern dédup par `eventId` que les consommateurs déjà en place. Aucune
+migration nécessaire (`notifications.type` déjà `varchar(64)`). 115/115 tests unitaires.
+
+**Bug réel signalé par le subagent, non corrigé (hors périmètre de cette PR)** : le
+`EventPublisherService` de `communication-service` republie indéfiniment le même `eventId` (pas
+seulement une fois après un crash comme prévu par l'arbitrage du 2026-08-14), ce qui fait croître
+`visiomath:events` sans borne. Sans conséquence observée ici grâce à la dédup par `eventId`, mais
+à corriger côté `communication-service` — **point ouvert, à déléguer**.
+
+**Revérifié par l'orchestrateur après merge** : les trois services (`communication-service`,
+`profile-service`, `dashboard-notification-service`) redéployés depuis `master`
+(`docker compose up -d --build`), tous `healthy`, `dashboard-notification-service` confirme au
+démarrage les routes `/notifications`, `/notifications/unread-count`, `/internal/notify`
+mappées ; site vérifié `200`.
+
+**Reste à déléguer** :
+1. `communication-service` — corriger la republication indéfinie du même `eventId` (bug ci-dessus).
+2. `front-developper` — écrans Contacts : recherche (identifiant exact / nom avec
+   désambiguïsation), demandes en attente, boutons accepter/refuser, messagerie conditionnée, et
+   libellés `notificationLabels.ts` pour les 3 nouveaux types (`contact_request_received`,
+   `contact_request_accepted`, `contact_request_declined`) — l'entrée de menu « Contacts » existe
+   déjà.
 
 ---
 
